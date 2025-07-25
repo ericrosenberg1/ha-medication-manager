@@ -1,0 +1,6 @@
+{
+  "name": "Medication Manager",
+  "content_in_root": false,
+  "render_readme": true,
+  "domains": ["medication_manager"]
+}

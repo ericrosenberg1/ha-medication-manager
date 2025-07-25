@@ -1,0 +1,20 @@
+mark_taken:
+  description: Mark a medication as taken
+  fields:
+    entity_id:
+      description: Medication entity
+      example: medication.aspirin
+
+mark_skipped:
+  description: Mark a medication as skipped
+  fields:
+    entity_id:
+      description: Medication entity
+      example: medication.aspirin
+
+mark_snoozed:
+  description: Snooze a medication reminder
+  fields:
+    entity_id:
+      description: Medication entity
+      example: medication.aspirin

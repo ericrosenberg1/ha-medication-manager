@@ -1,0 +1,11 @@
+{
+  "title": "Medication Manager",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Medication",
+        "description": "Enter the medication details."
+      }
+    }
+  }
+}
