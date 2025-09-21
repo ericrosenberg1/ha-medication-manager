@@ -1,11 +1,37 @@
 {
-  "title": "Medication Manager",
+  "title": "Medication Reminder",
   "config": {
     "step": {
       "user": {
         "title": "Add Medication",
-        "description": "Enter the medication details."
+        "description": "Enter the medication details.",
+        "data": {
+          "name": "Name",
+          "dose": "Dose",
+          "times": "Times (HH:MM, comma-separated)"
+        }
       }
+    },
+    "error": {
+      "invalid_times": "Invalid time format. Use HH:MM,HH:MM",
+      "required": "This field is required"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Edit Medication",
+        "description": "Update fields below.",
+        "data": {
+          "dose": "Dose",
+          "times": "Times (HH:MM, comma-separated)",
+          "snooze_minutes": "Default snooze (minutes)",
+          "notify_services": "Notify services (comma-separated)"
+        }
+      }
+    },
+    "error": {
+      "invalid_times": "Invalid time format. Use HH:MM,HH:MM"
     }
   }
 }

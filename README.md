@@ -27,6 +27,8 @@ Unlike existing blueprints or cloud‑dependent solutions, this project is **loc
 
 - **History Logging**  
   Automatically logs Taken/Skipped/Snoozed events with timestamps.
+  - Includes a 7‑day adherence sensor per medication.
+  - Optional history card shows recent events.
 
 - **Automation‑Friendly**  
   Expose medication states as entities for use in automations (e.g., flash lights every 5 minutes until a dose is marked Taken).
@@ -49,7 +51,9 @@ This project fills that gap.
    - Copy `custom_components/medication_reminder` into your `/config/custom_components/` directory.
    - Restart Home Assistant.
    - Go to **Settings → Devices & Services → Add Integration → Medication Reminder**.
-   - Add your medications (name, dose, times per day).
+   - Add your medications (name, dose, times per day). Each medication is a separate config entry.
+   - To edit later, open the integration entry and click Options.
+   - Optional: set `notify_services` (comma‑separated), e.g. `notify.mobile_app_my_phone, notify.family` for mobile actionable notifications.
 
 2. **Install the Lovelace Card**
    - Copy `www/community/medication-card` into `/config/www/community/`.
@@ -57,12 +61,28 @@ This project fills that gap.
      ```yaml
      type: custom:medication-card
      entities:
-       - medication.aspirin
-       - medication.vitamin_d
+       - sensor.medication_aspirin
+       - sensor.medication_vitamin_d
      ```
 
-3. **Automate**
-   - Use the medication entity states (`Pending`, `Taken`, `Skipped`, `Snoozed`) in your automations (e.g., voice announcements, flashing lights, reminders until taken).
+3. **Add the History Card (optional)**
+   - Copy `www/community/medication-history-card` into `/config/www/community/`.
+   - Add to your dashboard:
+     ```yaml
+     type: custom:medication-history-card
+     entities:
+       - sensor.medication_aspirin_adherence
+       - sensor.medication_vitamin_d_adherence
+     max_events: 10
+     ```
+
+4. **Automate**
+   - Use the medication sensor states (`Pending`, `Taken`, `Skipped`, `Snoozed`) in your automations (e.g., voice announcements, flashing lights, reminders until taken).
+   - Services support entity targets and optional snooze minutes:
+     - `medication_reminder.mark_taken` (target an entity or pass `entity_id`)
+     - `medication_reminder.mark_skipped`
+     - `medication_reminder.mark_snoozed` (optional `minutes: 10`)
+   - If mobile notify services are configured in Options, reminders include action buttons (Taken/Skip/Snooze) that work from your phone lock screen.
 
 ---
 
@@ -78,7 +98,7 @@ This project fills that gap.
 ## **Contributing**
 We welcome contributions! Here’s how you can help:
 1. **Report Bugs & Request Features**  
-   Open an issue [here](https://github.com/YOURNAME/ha-medication-reminder/issues).
+   Open an issue here: https://github.com/YOURNAME/ha-medication-manager/issues
 
 2. **Submit Code**  
    - Fork the repo.

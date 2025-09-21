@@ -1,8 +1,8 @@
 {
-  "domain": "medication_manager",
-  "name": "Medication Manager",
-  "version": "0.1.0-alpha",
-  "documentation": "https://github.com/YOURNAME/ha-medication-reminder",
+  "domain": "medication_reminder",
+  "name": "Medication Reminder",
+  "version": "0.1.0",
+  "documentation": "https://github.com/YOURNAME/ha-medication-manager",
   "requirements": [],
   "dependencies": [],
   "codeowners": ["@YOURNAME"],

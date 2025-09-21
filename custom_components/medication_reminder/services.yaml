@@ -1,20 +1,39 @@
 mark_taken:
   description: Mark a medication as taken
+  target:
+    entity:
+      domain: sensor
   fields:
     entity_id:
       description: Medication entity
-      example: medication.aspirin
+      example: sensor.medication_aspirin
 
 mark_skipped:
   description: Mark a medication as skipped
+  target:
+    entity:
+      domain: sensor
   fields:
     entity_id:
       description: Medication entity
-      example: medication.aspirin
+      example: sensor.medication_aspirin
 
 mark_snoozed:
   description: Snooze a medication reminder
+  target:
+    entity:
+      domain: sensor
   fields:
     entity_id:
       description: Medication entity
-      example: medication.aspirin
+      example: sensor.medication_aspirin
+    minutes:
+      description: Minutes to snooze (overrides default)
+      example: 10
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: min
+          mode: box
+          step: 1

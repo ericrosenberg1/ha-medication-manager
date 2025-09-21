@@ -1,82 +1,122 @@
 """Medication Reminder integration for Home Assistant."""
+from __future__ import annotations
+
 import logging
-from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers.storage import Store
-from homeassistant.helpers.event import async_track_point_in_time
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.service import async_extract_entity_ids
 
-from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION, DEFAULT_SNOOZE_MINUTES
+from .const import (
+    DOMAIN,
+    STATE_TAKEN,
+    STATE_SKIPPED,
+    DEFAULT_SNOOZE_MINUTES,
+)
+from .history import HistoryManager
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Medication Reminder from a config entry."""
-    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-    meds = await store.async_load() or []
+    # Keep a mapping of entity_id -> entity instance for service handlers
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN]["meds"] = meds
-    hass.data[DOMAIN]["store"] = store
+    hass.data[DOMAIN].setdefault("entities", {})
+    if "history" not in hass.data[DOMAIN]:
+        history = HistoryManager(hass)
+        await history.async_load()
+        hass.data[DOMAIN]["history"] = history
 
-    hass.async_create_task(hass.config_entries.async_forward_entry_setup(entry, "sensor"))
-    _LOGGER.info("Loaded %d medications", len(meds))
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    _LOGGER.debug("%s: sensor platform forwarded for entry %s", DOMAIN, entry.entry_id)
 
-    for med in meds:
-        await schedule_med_reminders(hass, med)
-
+    # Services operate on medication entities by entity_id
     async def mark_taken(call: ServiceCall):
-        await update_med_status(hass, call.data["entity_id"], "Taken")
+        entity_ids = async_extract_entity_ids(hass, call)
+        if not entity_ids:
+            raise HomeAssistantError("No entity_id or target provided")
+        for eid in entity_ids:
+            entity = hass.data[DOMAIN]["entities"].get(eid)
+            if not entity:
+                raise HomeAssistantError(f"Medication entity not found: {eid}")
+            await entity.async_mark(STATE_TAKEN)
+            await hass.data[DOMAIN]["history"].record(eid, STATE_TAKEN, dt_util.now().isoformat())
 
     async def mark_skipped(call: ServiceCall):
-        await update_med_status(hass, call.data["entity_id"], "Skipped")
+        entity_ids = async_extract_entity_ids(hass, call)
+        if not entity_ids:
+            raise HomeAssistantError("No entity_id or target provided")
+        for eid in entity_ids:
+            entity = hass.data[DOMAIN]["entities"].get(eid)
+            if not entity:
+                raise HomeAssistantError(f"Medication entity not found: {eid}")
+            await entity.async_mark(STATE_SKIPPED)
+            await hass.data[DOMAIN]["history"].record(eid, STATE_SKIPPED, dt_util.now().isoformat())
 
     async def mark_snoozed(call: ServiceCall):
-        await snooze_medication(hass, call.data["entity_id"])
+        entity_ids = async_extract_entity_ids(hass, call)
+        if not entity_ids:
+            raise HomeAssistantError("No entity_id or target provided")
+        raw_minutes = call.data.get("minutes")
+        for eid in entity_ids:
+            entity = hass.data[DOMAIN]["entities"].get(eid)
+            if not entity:
+                raise HomeAssistantError(f"Medication entity not found: {eid}")
+            try:
+                minutes = int(raw_minutes) if raw_minutes is not None else int(entity.snooze_minutes)
+            except (TypeError, ValueError):
+                minutes = DEFAULT_SNOOZE_MINUTES
+            if minutes < 1:
+                minutes = 1
+            if minutes > 1440:
+                minutes = 1440
+            await entity.async_snooze(minutes)
+            await hass.data[DOMAIN]["history"].record(eid, "Snoozed", dt_util.now().isoformat())
 
     hass.services.async_register(DOMAIN, "mark_taken", mark_taken)
     hass.services.async_register(DOMAIN, "mark_skipped", mark_skipped)
     hass.services.async_register(DOMAIN, "mark_snoozed", mark_snoozed)
+    _LOGGER.debug("%s: services registered", DOMAIN)
+
+    # Actionable mobile notifications handler
+    async def _handle_mobile_action(event):
+        data = event.data or {}
+        action = str(data.get("action", "")).upper()
+        ad = data.get("action_data", {}) or {}
+        entity_id = ad.get("entity_id") or data.get("tag")
+        if not entity_id:
+            return
+        entity = hass.data[DOMAIN]["entities"].get(entity_id)
+        if not entity:
+            return
+        if action in ("MED_TAKEN", "TAKEN"):
+            await entity.async_mark(STATE_TAKEN)
+            await hass.data[DOMAIN]["history"].record(entity_id, STATE_TAKEN, dt_util.now().isoformat())
+        elif action in ("MED_SKIP", "SKIP", "SKIPPED"):
+            await entity.async_mark(STATE_SKIPPED)
+            await hass.data[DOMAIN]["history"].record(entity_id, STATE_SKIPPED, dt_util.now().isoformat())
+        elif action in ("MED_SNOOZE", "SNOOZE", "SNOOZED"):
+            minutes = ad.get("minutes")
+            try:
+                minutes = int(minutes) if minutes is not None else int(entity.snooze_minutes)
+            except (TypeError, ValueError):
+                minutes = DEFAULT_SNOOZE_MINUTES
+            if minutes < 1:
+                minutes = 1
+            if minutes > 1440:
+                minutes = 1440
+            await entity.async_snooze(minutes)
+            await hass.data[DOMAIN]["history"].record(entity_id, "Snoozed", dt_util.now().isoformat())
+
+    hass.bus.async_listen("mobile_app_notification_action", _handle_mobile_action)
+    _LOGGER.debug("%s: listening for mobile_app_notification_action", DOMAIN)
+
     return True
 
-async def schedule_med_reminders(hass: HomeAssistant, med: dict):
-    """Schedule reminders for a medication."""
-    for time_str in med.get("times", []):
-        now = datetime.now()
-        target = now.replace(hour=int(time_str.split(":")[0]), minute=int(time_str.split(":")[1]), second=0)
-        if target < now:
-            target += timedelta(days=1)
-        async_track_point_in_time(hass, lambda _: send_reminder(hass, med), target)
 
-async def send_reminder(hass: HomeAssistant, med: dict):
-    """Send a persistent notification."""
-    await hass.services.async_call(
-        "persistent_notification",
-        "create",
-        {
-            "title": f"Medication Reminder: {med['name']}",
-            "message": f"Time to take {med['dose']} ({med['name']})"
-        }
-    )
-
-async def update_med_status(hass: HomeAssistant, entity_id: str, status: str):
-    """Update medication status and log history."""
-    meds = hass.data[DOMAIN]["meds"]
-    for med in meds:
-        if f"medication.{med['name'].lower().replace(' ', '_')}" == entity_id:
-            med["last_action"] = {"status": status, "timestamp": datetime.now().isoformat()}
-            await hass.data[DOMAIN]["store"].async_save(meds)
-            _LOGGER.info("Updated %s to %s", med['name'], status)
-            return
-
-async def snooze_medication(hass: HomeAssistant, entity_id: str):
-    """Snooze a medication reminder."""
-    meds = hass.data[DOMAIN]["meds"]
-    for med in meds:
-        if f"medication.{med['name'].lower().replace(' ', '_')}" == entity_id:
-            snooze_time = datetime.now() + timedelta(minutes=DEFAULT_SNOOZE_MINUTES)
-            async_track_point_in_time(hass, lambda _: send_reminder(hass, med), snooze_time)
-            med["last_action"] = {"status": "Snoozed", "timestamp": datetime.now().isoformat()}
-            await hass.data[DOMAIN]["store"].async_save(meds)
-            _LOGGER.info("Snoozed %s for %d minutes", med['name'], DEFAULT_SNOOZE_MINUTES)
-            return
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    return await hass.config_entries.async_unload_platforms(entry, ["sensor"])

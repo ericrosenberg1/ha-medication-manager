@@ -1,6 +1,6 @@
 {
-  "name": "Medication Manager",
+  "name": "Medication Reminder",
   "content_in_root": false,
   "render_readme": true,
-  "domains": ["medication_manager"]
+  "domains": ["medication_reminder"]
 }
