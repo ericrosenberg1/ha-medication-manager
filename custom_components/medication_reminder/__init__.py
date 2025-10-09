@@ -92,6 +92,58 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     raise HomeAssistantError(f"Medication entity not found: {eid}")
                 await entity.async_mark("Pending")
         hass.services.async_register(DOMAIN, "mark_pending", mark_pending)
+
+        # Refill helpers
+        async def refill_set(call: ServiceCall):
+            entity_ids = async_extract_entity_ids(hass, call)
+            if not entity_ids:
+                raise HomeAssistantError("No entity_id or target provided")
+            remaining = call.data.get("remaining")
+            threshold = call.data.get("threshold")
+            units = call.data.get("units_per_intake")
+            if remaining is None and threshold is None and units is None:
+                raise HomeAssistantError("Provide at least one of remaining, threshold, units_per_intake")
+            hist: HistoryManager = hass.data[DOMAIN]["history"]
+            for eid in entity_ids:
+                cur = hist.get_refill(eid) or {"remaining": 0, "threshold": 0, "units_per_intake": 1, "alerted": False}
+                await hist.set_refill(
+                    eid,
+                    remaining=int(remaining if remaining is not None else cur["remaining"]),
+                    threshold=int(threshold if threshold is not None else cur["threshold"]),
+                    units_per_intake=int(units if units is not None else cur["units_per_intake"]),
+                    alerted=bool(cur.get("alerted", False)),
+                )
+
+        async def refill_add(call: ServiceCall):
+            entity_ids = async_extract_entity_ids(hass, call)
+            if not entity_ids:
+                raise HomeAssistantError("No entity_id or target provided")
+            amount = call.data.get("amount")
+            if amount is None:
+                raise HomeAssistantError("amount is required")
+            try:
+                amount = int(amount)
+            except (TypeError, ValueError) as err:
+                raise HomeAssistantError("amount must be integer") from err
+            hist: HistoryManager = hass.data[DOMAIN]["history"]
+            for eid in entity_ids:
+                cur = hist.get_refill(eid)
+                if not cur:
+                    continue
+                new_remaining = max(0, int(cur.get("remaining", 0)) + amount)
+                await hist.adjust_refill(eid, remaining=new_remaining, alerted=False)
+
+        async def refill_acknowledge(call: ServiceCall):
+            entity_ids = async_extract_entity_ids(hass, call)
+            if not entity_ids:
+                raise HomeAssistantError("No entity_id or target provided")
+            hist: HistoryManager = hass.data[DOMAIN]["history"]
+            for eid in entity_ids:
+                await hist.adjust_refill(eid, alerted=False)
+
+        hass.services.async_register(DOMAIN, "refill_set", refill_set)
+        hass.services.async_register(DOMAIN, "refill_add", refill_add)
+        hass.services.async_register(DOMAIN, "refill_acknowledge", refill_acknowledge)
         store["services_registered"] = True
         _LOGGER.debug("%s: services registered", DOMAIN)
 
@@ -110,7 +162,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if action in ("MED_TAKEN", "TAKEN"):
                 await entity.async_mark(STATE_TAKEN)
                 await hass.data[DOMAIN]["history"].record(entity_id, STATE_TAKEN, dt_util.now().isoformat())
-            elif action in ("MED_SKIP", "SKIP", "SKIPPED"):
+            elif action in ("MED_SKIP", "SKIP", "SKIPPED", "MED_DISMISS", "DISMISS"):
                 await entity.async_mark(STATE_SKIPPED)
                 await hass.data[DOMAIN]["history"].record(entity_id, STATE_SKIPPED, dt_util.now().isoformat())
             elif action in ("MED_SNOOZE", "SNOOZE", "SNOOZED"):
@@ -144,7 +196,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store = hass.data.get(DOMAIN, {})
     if not any_loaded:
         # Unregister services
-        for svc in ("mark_taken", "mark_skipped", "mark_snoozed", "mark_pending"):
+        for svc in ("mark_taken", "mark_skipped", "mark_snoozed", "mark_pending", "refill_set", "refill_add", "refill_acknowledge"):
             if hass.services.has_service(DOMAIN, svc):
                 hass.services.async_remove(DOMAIN, svc)
         # Remove mobile listener

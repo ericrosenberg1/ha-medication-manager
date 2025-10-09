@@ -48,6 +48,7 @@ class MedicationCard extends HTMLElement {
       right.appendChild(mkBtn('Taken', 'mark_taken'));
       right.appendChild(mkBtn('Skip', 'mark_skipped'));
       right.appendChild(mkBtn('Snooze', 'mark_snoozed'));
+      right.appendChild(mkBtn('Dismiss', 'mark_skipped'));
       li.appendChild(right);
 
       list.appendChild(li);

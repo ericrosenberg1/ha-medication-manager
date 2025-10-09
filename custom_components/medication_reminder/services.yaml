@@ -47,3 +47,45 @@ mark_pending:
     entity_id:
       description: Medication entity
       example: sensor.medication_aspirin
+
+refill_set:
+  description: Set refill remaining/threshold/units for a medication
+  target:
+    entity:
+      domain: sensor
+  fields:
+    entity_id:
+      description: Medication entity
+      example: sensor.medication_aspirin
+    remaining:
+      description: Remaining units in your supply (optional)
+      example: 60
+    threshold:
+      description: Threshold to alert for refill (optional)
+      example: 10
+    units_per_intake:
+      description: Units consumed per dose (optional)
+      example: 1
+
+refill_add:
+  description: Add units to remaining supply (e.g., after refill)
+  target:
+    entity:
+      domain: sensor
+  fields:
+    entity_id:
+      description: Medication entity
+      example: sensor.medication_aspirin
+    amount:
+      description: Units to add
+      example: 30
+
+refill_acknowledge:
+  description: Acknowledge refill alert (clears alert flag)
+  target:
+    entity:
+      domain: sensor
+  fields:
+    entity_id:
+      description: Medication entity
+      example: sensor.medication_aspirin
