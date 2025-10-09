@@ -2,6 +2,8 @@
 
 **Medication Reminder** is a [Home Assistant](https://www.home-assistant.io/) custom integration and Lovelace card designed to help you **manage medications, get timely reminders, and track adherence** — all directly within your smart home ecosystem.  
 
+Created by [Eric Rosenberg](https://ericrosenberg.com) • Projects/links: [eric.money](https://eric.money)
+
 Unlike existing blueprints or cloud‑dependent solutions, this project is **local‑first**, **fully configurable in the UI**, and integrates seamlessly with Home Assistant automations.
 
 ---
@@ -48,16 +50,26 @@ This project fills that gap.
 
 ## **Getting Started**
 1. **Install the Integration**
-   - Copy `custom_components/medication_reminder` into your `/config/custom_components/` directory.
-   - Restart Home Assistant.
-   - Go to **Settings → Devices & Services → Add Integration → Medication Reminder**.
-   - Add your medications (name, dose, times per day). Each medication is a separate config entry.
-   - To edit later, open the integration entry and click Options.
-   - Optional: set `notify_services` (comma‑separated), e.g. `notify.mobile_app_my_phone, notify.family` for mobile actionable notifications.
+   - Via HACS (recommended on HAOS):
+     - Install HACS if not already installed.
+     - In HACS → Integrations, open the menu (⋮) → Custom repositories → add `https://github.com/ericrosenberg1/ha-medication-manager` with category `Integration`.
+     - Find “Medication Reminder” in HACS and Install. Restart Home Assistant.
+   - Manual:
+     - Copy `custom_components/medication_reminder` into `/config/custom_components/`.
+     - Restart Home Assistant.
+   - Configure:
+     - Go to **Settings → Devices & Services → Add Integration → Medication Reminder**.
+     - Add your medications (name, dose, times per day). Each medication is a separate config entry.
+     - To edit later, open the integration entry and click Options.
+     - Optional: set `notify_services` (comma‑separated), e.g. `notify.mobile_app_my_phone, notify.family` for mobile actionable notifications.
 
 2. **Install the Lovelace Card**
-   - Copy `www/community/medication-card` into `/config/www/community/`.
-   - Add the card to your dashboard:
+   - Note: When installing this integration via HACS, the Lovelace cards in this repository are not installed automatically. Copy the files manually (or install the cards from their own repos if split in the future).
+   - Copy `www/community/medication-card` into `/config/www/community/` (create the folders if needed).
+   - Add a Lovelace Resource: **Settings → Dashboards → Resources → + Add Resource**
+     - URL: `/local/community/medication-card/medication-card.js`
+     - Resource type: `JavaScript Module`
+   - Add the card to a dashboard:
      ```yaml
      type: custom:medication-card
      entities:
@@ -67,7 +79,10 @@ This project fills that gap.
 
 3. **Add the History Card (optional)**
    - Copy `www/community/medication-history-card` into `/config/www/community/`.
-   - Add to your dashboard:
+   - Add a Lovelace Resource for it as well:
+     - URL: `/local/community/medication-history-card/medication-history-card.js`
+     - Resource type: `JavaScript Module`
+   - Add to a dashboard:
      ```yaml
      type: custom:medication-history-card
      entities:
@@ -82,6 +97,7 @@ This project fills that gap.
      - `medication_reminder.mark_taken` (target an entity or pass `entity_id`)
      - `medication_reminder.mark_skipped`
      - `medication_reminder.mark_snoozed` (optional `minutes: 10`)
+     - `medication_reminder.mark_pending` (reset state back to Pending)
    - If mobile notify services are configured in Options, reminders include action buttons (Taken/Skip/Snooze) that work from your phone lock screen.
 
 ---
@@ -98,7 +114,24 @@ This project fills that gap.
 ## **Contributing**
 We welcome contributions! Here’s how you can help:
 1. **Report Bugs & Request Features**  
-   Open an issue here: https://github.com/YOURNAME/ha-medication-manager/issues
+Open an issue here: https://github.com/ericrosenberg1/ha-medication-manager/issues
+
+Author: [Eric Rosenberg](https://ericrosenberg.com) • [eric.money](https://eric.money)
+
+For consulting, support, or sponsorships, connect via either site.
+
+---
+
+## **Changelog**
+
+0.10.0
+- Guard domain service registration and mobile action listener to register once.
+- Cleanup services/listener automatically when the last entry is removed.
+- Generate stable entity IDs using Home Assistant helpers.
+- Sanitize notification services in options to prevent invalid service names.
+- Expose `snooze_minutes` and configured `notify_services` as entity attributes.
+- Add `mark_pending` service to reset a medication to Pending.
+- Update docs with HACS guidance and Lovelace resource instructions.
 
 2. **Submit Code**  
    - Fork the repo.

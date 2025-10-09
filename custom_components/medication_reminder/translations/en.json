@@ -25,7 +25,12 @@
           "dose": "Dose",
           "times": "Times (HH:MM, comma-separated)",
           "snooze_minutes": "Default snooze (minutes)",
-          "notify_services": "Notify services (comma-separated)"
+          "notify_services": "Notify services (comma-separated)",
+          "nag_interval_minutes": "Nag interval (minutes)",
+          "nag_max": "Max nags per reminder",
+          "refill_total": "Refill: remaining units",
+          "refill_threshold": "Refill alert threshold",
+          "dose_units_per_intake": "Units per dose"
         }
       }
     },

@@ -95,6 +95,25 @@ class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
                 if snooze > 1440:
                     snooze = 1440
                 notify_services = (user_input.get("notify_services") or "").strip()
+                nag_interval = int(user_input.get("nag_interval_minutes", 5))
+                if nag_interval < 0:
+                    nag_interval = 0
+                if nag_interval > 120:
+                    nag_interval = 120
+                nag_max = int(user_input.get("nag_max", 3))
+                if nag_max < 0:
+                    nag_max = 0
+                if nag_max > 48:
+                    nag_max = 48
+                refill_total = int(user_input.get("refill_total", 0))
+                if refill_total < 0:
+                    refill_total = 0
+                refill_threshold = int(user_input.get("refill_threshold", 0))
+                if refill_threshold < 0:
+                    refill_threshold = 0
+                dose_units_per_intake = int(user_input.get("dose_units_per_intake", 1))
+                if dose_units_per_intake < 1:
+                    dose_units_per_intake = 1
                 return self.async_create_entry(
                     title="",
                     data={
@@ -102,6 +121,11 @@ class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
                         ATTR_TIMES: times,
                         "snooze_minutes": snooze,
                         "notify_services": notify_services,
+                        "nag_interval_minutes": nag_interval,
+                        "nag_max": nag_max,
+                        "refill_total": refill_total,
+                        "refill_threshold": refill_threshold,
+                        "dose_units_per_intake": dose_units_per_intake,
                     },
                 )
             except vol.Invalid:
@@ -112,6 +136,11 @@ class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
             ATTR_TIMES: ", ".join(self.config_entry.options.get(ATTR_TIMES, self.config_entry.data.get(ATTR_TIMES, [])) or []),
             "snooze_minutes": self.config_entry.options.get("snooze_minutes", 5),
             "notify_services": self.config_entry.options.get("notify_services", ""),
+            "nag_interval_minutes": self.config_entry.options.get("nag_interval_minutes", 5),
+            "nag_max": self.config_entry.options.get("nag_max", 3),
+            "refill_total": self.config_entry.options.get("refill_total", 0),
+            "refill_threshold": self.config_entry.options.get("refill_threshold", 0),
+            "dose_units_per_intake": self.config_entry.options.get("dose_units_per_intake", 1),
         }
 
         schema = vol.Schema(
@@ -126,6 +155,11 @@ class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
                         "suggested_value": "notify.mobile_app_my_phone, notify.family",
                     },
                 ): str,
+                vol.Optional("nag_interval_minutes", default=current["nag_interval_minutes"]): int,
+                vol.Optional("nag_max", default=current["nag_max"]): int,
+                vol.Optional("refill_total", default=current["refill_total"]): int,
+                vol.Optional("refill_threshold", default=current["refill_threshold"]): int,
+                vol.Optional("dose_units_per_intake", default=current["dose_units_per_intake"]): int,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

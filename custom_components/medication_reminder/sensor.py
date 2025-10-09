@@ -4,16 +4,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Callable, List, Optional
+import re
 
 import voluptuous as vol
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
+from homeassistant.helpers.entity import async_generate_entity_id
 
 from .const import (
     DOMAIN,
@@ -73,7 +75,23 @@ async def async_setup_entry(
 
     snooze_minutes = int(entry.options.get("snooze_minutes", DEFAULT_SNOOZE_MINUTES))
     notify_services_raw = (entry.options.get("notify_services") or "").strip()
-    notify_services = [s.strip() for s in notify_services_raw.split(",") if s.strip()]
+    raw_services = [s.strip() for s in notify_services_raw.split(",") if s.strip()]
+
+    def _sanitize_services(services: List[str]) -> List[str]:
+        """Allow 'notify.xxx' or 'xxx'; return normalized unique list of 'xxx'."""
+        out: list[str] = []
+        seen: set[str] = set()
+        pat = re.compile(r"^(?:notify\.)?[a-z0-9_]+$")
+        for svc in services:
+            if not pat.fullmatch(svc):
+                continue
+            name = svc.split(".", 1)[1] if svc.startswith("notify.") else svc
+            if name not in seen:
+                seen.add(name)
+                out.append(name)
+        return out
+
+    notify_services = _sanitize_services(raw_services)
 
     med_entity = MedicationSensor(
         hass=hass,
@@ -140,12 +158,12 @@ class MedicationSensor(SensorEntity):
         slug = _slugify(name)
         self._attr_name = name
         self._attr_unique_id = f"med_{slug}"
-        # Stable entity_id for ease of use and card compatibility
-        self.entity_id = f"sensor.medication_{slug}"
+        # Stable entity_id using HA helper; remains sensor.medication_<slug> when free
+        self.entity_id = async_generate_entity_id("sensor.{}", f"medication_{slug}", hass=hass)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "medication_reminder")},
             "name": "Medication Reminder",
-            "manufacturer": "Local",
+            "manufacturer": "Eric Rosenberg",
         }
 
     @property
@@ -153,11 +171,24 @@ class MedicationSensor(SensorEntity):
         return self._state
 
     @property
+    def icon(self):
+        st = str(self._state or "").lower()
+        if st.startswith("take"):
+            return "mdi:check-circle"
+        if st.startswith("skip"):
+            return "mdi:close-circle"
+        if st.startswith("snooz"):
+            return "mdi:alarm-snooze"
+        return "mdi:pill"
+
+    @property
     def extra_state_attributes(self):
         return {
             ATTR_NAME: self._name,
             ATTR_DOSE: self._dose,
             ATTR_TIMES: self._times,
+            "snooze_minutes": self._snooze_minutes,
+            "notify_services": [f"notify.{s}" for s in self._notify_services],
             ATTR_LAST_ACTION: None
             if not self._last_action
             else {"status": self._last_action.status, "timestamp": self._last_action.timestamp},
@@ -225,17 +256,9 @@ class MedicationSensor(SensorEntity):
                 "actions": actions,
                 "action_data": {"entity_id": self.entity_id, "minutes": self._snooze_minutes},
             }
-            for svc in self._notify_services:
-                svc = svc.strip()
-                if not svc:
-                    continue
-                # Allow both 'notify.mobile_app_*' and 'mobile_app_*'
-                if svc.startswith("notify."):
-                    domain, service = svc.split(".", 1)
-                else:
-                    domain, service = "notify", svc
+            for service in self._notify_services:
                 await self.hass.services.async_call(
-                    domain,
+                    "notify",
                     service,
                     {"title": f"Medication Reminder: {self._name}", "message": message, "data": data},
                     blocking=False,
@@ -279,7 +302,8 @@ class MedicationSensor(SensorEntity):
             self._snooze_minutes = snooze_minutes
             changed = True
         if notify_services is not None:
-            self._notify_services = notify_services
+            pat = re.compile(r"^[a-z0-9_]+$")
+            self._notify_services = [s for s in notify_services if pat.fullmatch(s)]
             changed = True
         if changed:
             self.async_write_ha_state()
@@ -290,6 +314,7 @@ class MedicationAdherenceSensor(SensorEntity):
 
     _attr_icon = "mdi:chart-line"
     _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, hass: HomeAssistant, name: str, times: list[str], history: HistoryManager, source_entity_id: Optional[str], slug: str):
         self.hass = hass
@@ -301,12 +326,12 @@ class MedicationAdherenceSensor(SensorEntity):
         self._state: Optional[float] = None
         self._attr_name = f"{name} Adherence"
         self._attr_unique_id = f"med_{slug}_adherence"
-        self.entity_id = f"sensor.medication_{slug}_adherence"
+        self.entity_id = async_generate_entity_id("sensor.{}", f"medication_{slug}_adherence", hass=hass)
         self._unsub_dispatcher = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "medication_reminder")},
             "name": "Medication Reminder",
-            "manufacturer": "Local",
+            "manufacturer": "Eric Rosenberg",
         }
 
     def set_source_entity_id(self, entity_id: str) -> None:

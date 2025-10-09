@@ -37,3 +37,13 @@ mark_snoozed:
           unit_of_measurement: min
           mode: box
           step: 1
+
+mark_pending:
+  description: Reset a medication state to Pending
+  target:
+    entity:
+      domain: sensor
+  fields:
+    entity_id:
+      description: Medication entity
+      example: sensor.medication_aspirin
