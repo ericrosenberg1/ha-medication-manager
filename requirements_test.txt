@@ -1,5 +1,0 @@
-pytest>=7.4
-pytest-asyncio>=0.21
-pytest-cov>=4.1
-pytest-homeassistant-custom-component>=0.13
-ruff>=0.4
