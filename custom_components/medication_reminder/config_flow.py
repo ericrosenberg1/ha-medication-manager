@@ -5,36 +5,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 
 from .const import DOMAIN, ATTR_NAME, ATTR_DOSE, ATTR_TIMES
-
-
-def _slugify(name: str) -> str:
-    base = "".join(ch if ch.isalnum() else "_" for ch in name.lower())
-    return "_".join([p for p in base.split("_") if p])
-
-
-def _normalize_times(value: str) -> list[str]:
-    items = [v.strip() for v in value.split(",")]
-    out: list[str] = []
-    for t in items:
-        if not t:
-            continue
-        try:
-            hh, mm = t.split(":")
-            hhi = int(hh)
-            mmi = int(mm)
-        except Exception as err:
-            raise vol.Invalid(f"Invalid time format: {t}") from err
-        if not (0 <= hhi <= 23 and 0 <= mmi <= 59):
-            raise vol.Invalid(f"Invalid time value: {t}")
-        out.append(f"{hhi:02d}:{mmi:02d}")
-    # de-duplicate
-    seen = set()
-    unique: list[str] = []
-    for t in out:
-        if t not in seen:
-            seen.add(t)
-            unique.append(t)
-    return unique
+from .helpers import normalize_times, slugify
 
 
 class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -47,14 +18,14 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 name = user_input.get(ATTR_NAME, "").strip()
                 dose = user_input.get(ATTR_DOSE, "").strip()
                 times_raw = user_input.get(ATTR_TIMES, "").strip()
-                times = _normalize_times(times_raw)
+                times = normalize_times(times_raw)
 
                 if not name:
                     errors[ATTR_NAME] = "required"
                 elif not times:
                     errors[ATTR_TIMES] = "required"
                 else:
-                    slug = _slugify(name)
+                    slug = slugify(name)
                     await self.async_set_unique_id(f"med_{slug}")
                     self._abort_if_unique_id_configured()
                     title = name
@@ -88,7 +59,7 @@ class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
             try:
                 dose = (user_input.get(ATTR_DOSE) or "").strip()
                 times_raw = (user_input.get(ATTR_TIMES) or "")
-                times = _normalize_times(times_raw)
+                times = normalize_times(times_raw)
                 snooze = int(user_input.get("snooze_minutes", 5))
                 if snooze < 1:
                     snooze = 1
