@@ -4,6 +4,30 @@
     "step": {
       "user": {
         "title": "Add Medication",
+        "description": "Search the FDA database for your medication, or choose manual entry.",
+        "data": {
+          "entry_mode": "Entry mode",
+          "search_query": "Medication name to search"
+        }
+      },
+      "select_medication": {
+        "title": "Select Medication",
+        "description": "Choose your medication from the search results.",
+        "data": {
+          "selected_medication": "Medication"
+        }
+      },
+      "confirm": {
+        "title": "Confirm Medication Details",
+        "description": "Review and complete the medication details.",
+        "data": {
+          "name": "Name",
+          "dose": "Dose",
+          "times": "Times (HH:MM, comma-separated)"
+        }
+      },
+      "manual": {
+        "title": "Add Medication Manually",
         "description": "Enter the medication details.",
         "data": {
           "name": "Name",
@@ -14,7 +38,9 @@
     },
     "error": {
       "invalid_times": "Invalid time format. Use HH:MM,HH:MM",
-      "required": "This field is required"
+      "required": "This field is required",
+      "no_results": "No medications found. Try a different search or use manual entry.",
+      "invalid_selection": "Invalid selection. Please try again."
     }
   },
   "options": {

@@ -1,12 +1,12 @@
 {
   "domain": "medication_reminder",
   "name": "Medication Reminder",
-  "version": "0.10.0",
+  "version": "0.2.0-beta",
   "documentation": "https://github.com/ericrosenberg1/ha-medication-manager",
   "requirements": [],
   "dependencies": [],
   "codeowners": ["@ericrosenberg1"],
-  "iot_class": "local_push",
+  "iot_class": "cloud_polling",
   "config_flow": true,
   "issue_tracker": "https://github.com/ericrosenberg1/ha-medication-manager/issues"
 }

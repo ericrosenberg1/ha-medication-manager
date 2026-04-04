@@ -3,8 +3,17 @@ from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .api import get_drug_details, search_medications
 from .const import DOMAIN, ATTR_NAME, ATTR_DOSE, ATTR_TIMES
+
+CONF_SEARCH_QUERY = "search_query"
+CONF_ENTRY_MODE = "entry_mode"
+CONF_SELECTED_MED = "selected_medication"
+
+MODE_SEARCH = "search"
+MODE_MANUAL = "manual"
 
 
 def _slugify(name: str) -> str:
@@ -28,7 +37,7 @@ def _normalize_times(value: str) -> list[str]:
             raise vol.Invalid(f"Invalid time value: {t}")
         out.append(f"{hhi:02d}:{mmi:02d}")
     # de-duplicate
-    seen = set()
+    seen: set[str] = set()
     unique: list[str] = []
     for t in out:
         if t not in seen:
@@ -40,28 +49,139 @@ def _normalize_times(value: str) -> list[str]:
 class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
-    async def async_step_user(self, user_input=None):
-        errors = {}
-        if user_input is not None:
-            try:
-                name = user_input.get(ATTR_NAME, "").strip()
-                dose = user_input.get(ATTR_DOSE, "").strip()
-                times_raw = user_input.get(ATTR_TIMES, "").strip()
-                times = _normalize_times(times_raw)
+    def __init__(self) -> None:
+        """Initialise flow state."""
+        super().__init__()
+        self._search_results: list[dict] = []
+        self._selected_name: str = ""
+        self._selected_dose: str = ""
+        self._selected_rxcui: str = ""
+        self._drug_info: dict = {}
 
-                if not name:
-                    errors[ATTR_NAME] = "required"
-                elif not times:
-                    errors[ATTR_TIMES] = "required"
+    # ------------------------------------------------------------------
+    # Step 1: choose search vs manual entry
+    # ------------------------------------------------------------------
+    async def async_step_user(self, user_input=None):
+        """First step -- search for a medication or enter manually."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            mode = user_input.get(CONF_ENTRY_MODE, MODE_SEARCH)
+            if mode == MODE_MANUAL:
+                return await self.async_step_manual()
+
+            query = (user_input.get(CONF_SEARCH_QUERY) or "").strip()
+            if not query:
+                errors[CONF_SEARCH_QUERY] = "required"
+            else:
+                session = async_get_clientsession(self.hass)
+                results = await search_medications(session, query)
+                if results:
+                    self._search_results = results
+                    return await self.async_step_select_medication()
+                # API returned nothing -- let user know and stay on form
+                errors["base"] = "no_results"
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_ENTRY_MODE, default=MODE_SEARCH): vol.In(
+                    {MODE_SEARCH: "Search FDA database", MODE_MANUAL: "Enter manually"}
+                ),
+                vol.Optional(CONF_SEARCH_QUERY, default=""): str,
+            }
+        )
+        return self.async_show_form(
+            step_id="user", data_schema=schema, errors=errors
+        )
+
+    # ------------------------------------------------------------------
+    # Step 2: select from search results
+    # ------------------------------------------------------------------
+    async def async_step_select_medication(self, user_input=None):
+        """Let the user pick a medication from the search results."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            idx_str = user_input.get(CONF_SELECTED_MED)
+            try:
+                idx = int(idx_str)
+                med = self._search_results[idx]
+            except (TypeError, ValueError, IndexError):
+                errors[CONF_SELECTED_MED] = "invalid_selection"
+            else:
+                self._selected_name = med["name"]
+                self._selected_rxcui = med.get("rxcui", "")
+
+                # Pick the first strength/form as default dose if available
+                forms = med.get("strengths_and_forms") or []
+                self._selected_dose = forms[0] if forms else ""
+
+                # Fetch detailed drug info in the background
+                if self._selected_rxcui:
+                    session = async_get_clientsession(self.hass)
+                    details = await get_drug_details(session, self._selected_rxcui)
+                    self._drug_info = details or {}
                 else:
-                    slug = _slugify(name)
-                    await self.async_set_unique_id(f"med_{slug}")
-                    self._abort_if_unique_id_configured()
-                    title = name
-                    data = {ATTR_NAME: name, ATTR_DOSE: dose, ATTR_TIMES: times}
-                    return self.async_create_entry(title=title, data=data)
-            except vol.Invalid as err:
-                errors["base"] = "invalid_times"
+                    self._drug_info = {}
+
+                return await self.async_step_confirm()
+
+        # Build selector options from search results
+        options = {
+            str(i): med["name"] for i, med in enumerate(self._search_results)
+        }
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_SELECTED_MED): vol.In(options),
+            }
+        )
+        return self.async_show_form(
+            step_id="select_medication", data_schema=schema, errors=errors
+        )
+
+    # ------------------------------------------------------------------
+    # Step 3a: confirm / edit details from API selection
+    # ------------------------------------------------------------------
+    async def async_step_confirm(self, user_input=None):
+        """Show pre-populated fields for the selected medication."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            result = self._create_entry_from_input(user_input, errors)
+            if result is not None:
+                return result
+            # errors dict was populated -- fall through to re-show form
+
+        schema = vol.Schema(
+            {
+                vol.Required(ATTR_NAME, default=self._selected_name): str,
+                vol.Optional(ATTR_DOSE, default=self._selected_dose): str,
+                vol.Required(
+                    ATTR_TIMES,
+                    description={"suggested_value": "08:00, 20:00"},
+                ): str,
+            }
+        )
+        return self.async_show_form(
+            step_id="confirm", data_schema=schema, errors=errors
+        )
+
+    # ------------------------------------------------------------------
+    # Step 3b: manual entry (fallback)
+    # ------------------------------------------------------------------
+    async def async_step_manual(self, user_input=None):
+        """Manual medication entry -- same as old async_step_user."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Reset API-sourced fields
+            self._selected_rxcui = ""
+            self._drug_info = {}
+            result = self._create_entry_from_input(user_input, errors)
+            if result is not None:
+                return result
+            # errors dict was populated -- fall through to re-show form
 
         schema = vol.Schema(
             {
@@ -69,13 +189,47 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(ATTR_DOSE, default=""): str,
                 vol.Required(
                     ATTR_TIMES,
-                    description={
-                        "suggested_value": "08:00, 20:00",
-                    },
+                    description={"suggested_value": "08:00, 20:00"},
                 ): str,
             }
         )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="manual", data_schema=schema, errors=errors
+        )
+
+    # ------------------------------------------------------------------
+    # Shared helper to create the config entry
+    # ------------------------------------------------------------------
+    def _create_entry_from_input(self, user_input, errors):
+        """Validate common fields and create the config entry."""
+        try:
+            name = (user_input.get(ATTR_NAME) or "").strip()
+            dose = (user_input.get(ATTR_DOSE) or "").strip()
+            times_raw = (user_input.get(ATTR_TIMES) or "").strip()
+            times = _normalize_times(times_raw)
+
+            if not name:
+                errors[ATTR_NAME] = "required"
+            elif not times:
+                errors[ATTR_TIMES] = "required"
+            else:
+                slug = _slugify(name)
+                self.async_set_unique_id(f"med_{slug}")
+                self._abort_if_unique_id_configured()
+                data = {
+                    ATTR_NAME: name,
+                    ATTR_DOSE: dose,
+                    ATTR_TIMES: times,
+                    "rxcui": self._selected_rxcui,
+                    "drug_info": self._drug_info,
+                }
+                return self.async_create_entry(title=name, data=data)
+        except vol.Invalid:
+            errors["base"] = "invalid_times"
+
+        # If we reach here there were validation errors.  Return None so the
+        # caller re-shows its own form.
+        return None
 
 
 class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
