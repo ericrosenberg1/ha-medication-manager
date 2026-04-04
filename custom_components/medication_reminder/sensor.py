@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Callable, List, Optional
+import logging
 import re
 
 import voluptuous as vol
@@ -24,11 +25,16 @@ from .const import (
     ATTR_NAME,
     ATTR_TIMES,
     DEFAULT_SNOOZE_MINUTES,
+    EVENT_STATE_CHANGED,
     STATE_PENDING,
     STATE_SNOOZED,
+    STATE_TAKEN,
+    STATE_SKIPPED,
     SIGNAL_HISTORY_UPDATED,
 )
 from .history import HistoryManager
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _slugify(name: str) -> str:
@@ -65,6 +71,11 @@ def _parse_times(value: str | list[str]) -> list[str]:
     return unique
 
 
+def _today_str() -> str:
+    """Return today's date as YYYY-MM-DD in HA's configured timezone."""
+    return dt_util.now().strftime("%Y-%m-%d")
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -85,10 +96,10 @@ async def async_setup_entry(
         for svc in services:
             if not pat.fullmatch(svc):
                 continue
-            name = svc.split(".", 1)[1] if svc.startswith("notify.") else svc
-            if name not in seen:
-                seen.add(name)
-                out.append(name)
+            svc_name = svc.split(".", 1)[1] if svc.startswith("notify.") else svc
+            if svc_name not in seen:
+                seen.add(svc_name)
+                out.append(svc_name)
         return out
 
     notify_services = _sanitize_services(raw_services)
@@ -120,7 +131,7 @@ async def async_setup_entry(
         name=name,
         times=times,
         history=history,
-        source_entity_id=None,  # Will be filled after med_entity has entity_id
+        source_entity_id=None,
         slug=_slugify(name),
     )
 
@@ -129,7 +140,7 @@ async def async_setup_entry(
         name=name,
         times=times,
         history=history,
-        source_entity_id=None,  # Set after med_entity created
+        source_entity_id=None,
         slug=_slugify(name),
     )
 
@@ -198,11 +209,11 @@ class MedicationSensor(SensorEntity):
         self._refill_threshold = max(0, int(refill_threshold))
         self._init_refill_total = max(0, int(refill_total))
         self._entry_id = entry_id
+        self._midnight_unsub: Optional[Callable[[], None]] = None
 
         slug = _slugify(name)
         self._attr_name = name
         self._attr_unique_id = f"med_{slug}"
-        # Stable entity_id using HA helper; remains sensor.medication_<slug> when free
         self.entity_id = async_generate_entity_id("sensor.{}", f"medication_{slug}", hass=hass)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "medication_reminder")},
@@ -248,12 +259,76 @@ class MedicationSensor(SensorEntity):
     async def async_added_to_hass(self) -> None:
         # Register in shared mapping so services can find us by entity_id
         self.hass.data.setdefault(DOMAIN, {}).setdefault("entities", {})[self.entity_id] = self
-        self._schedule_all()
+
         # Initialize refill persistence (from options if present and nothing stored yet)
         history: HistoryManager = self.hass.data[DOMAIN]["history"]
         info = history.get_refill(self.entity_id)
         if info is None and (self._init_refill_total > 0 or self._refill_threshold > 0):
             await history.set_refill(self.entity_id, remaining=self._init_refill_total, threshold=self._refill_threshold, units_per_intake=self._units_per_intake)
+
+        # Restore state from persistence
+        await self._restore_state()
+
+        # Schedule reminders and midnight reset
+        self._schedule_all()
+        self._schedule_midnight_reset()
+
+        # Recover any active snooze
+        await self._recover_snooze()
+
+    async def _restore_state(self) -> None:
+        """Restore last known state on startup. Reset to Pending if it's a new day."""
+        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        saved = history.get_last_state(self.entity_id)
+        if not saved:
+            return
+        saved_date = saved.get("date", "")
+        today = _today_str()
+        if saved_date == today:
+            # Same day: restore the saved state
+            self._state = saved.get("state", STATE_PENDING)
+            ts = saved.get("timestamp")
+            if ts:
+                self._last_action = _LastAction(status=self._state, timestamp=ts)
+        else:
+            # New day: reset to Pending
+            self._state = STATE_PENDING
+            self._last_action = None
+
+    async def _recover_snooze(self) -> None:
+        """On startup, check if there's an active snooze to resume."""
+        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        snooze_iso = history.get_snooze_until(self.entity_id)
+        if not snooze_iso:
+            return
+        snooze_time = dt_util.parse_datetime(snooze_iso)
+        if snooze_time is None:
+            await history.set_snooze_until(self.entity_id, None)
+            return
+        now = dt_util.now()
+        if snooze_time > now:
+            # Snooze still active, re-schedule
+            self._state = STATE_SNOOZED
+            self._last_action = _LastAction(status=STATE_SNOOZED, timestamp=snooze_iso)
+            self.async_write_ha_state()
+
+            def _cb(_):
+                self.hass.async_create_task(self._snooze_expired())
+
+            unsub = async_track_point_in_time(self.hass, _cb, snooze_time)
+            self._unsubs.append(unsub)
+            _LOGGER.debug("%s: restored snooze until %s", self.entity_id, snooze_iso)
+        else:
+            # Snooze expired while we were down, fire reminder now
+            await history.set_snooze_until(self.entity_id, None)
+            _LOGGER.debug("%s: snooze expired during downtime, firing reminder", self.entity_id)
+            await self._async_send_reminder()
+
+    async def _snooze_expired(self) -> None:
+        """Called when a recovered or new snooze timer expires."""
+        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        await history.set_snooze_until(self.entity_id, None)
+        await self._async_send_reminder()
 
     async def async_will_remove_from_hass(self) -> None:
         for u in self._unsubs:
@@ -262,47 +337,120 @@ class MedicationSensor(SensorEntity):
         if self._nag_unsub:
             self._nag_unsub()
             self._nag_unsub = None
+        if self._midnight_unsub:
+            self._midnight_unsub()
+            self._midnight_unsub = None
         self.hass.data.get(DOMAIN, {}).get("entities", {}).pop(self.entity_id, None)
 
     def _schedule_all(self) -> None:
+        """Schedule reminders for each configured time, with restart recovery."""
         # Cancel any existing schedules
         for u in self._unsubs:
             u()
         self._unsubs.clear()
 
         now = dt_util.now()
+        today = _today_str()
+        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        last_reminded = history.get_last_reminded(self.entity_id)
+
         for t in self._times:
             hh, mm = (int(x) for x in t.split(":"))
             target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-            if target <= now:
-                target += timedelta(days=1)
 
-            def _cb(_, hhi=hh, mmi=mm):
-                self.hass.async_create_task(self._async_send_reminder())
-                # After firing, schedule next day's reminder for this time
-                self._reschedule_time(hhi, mmi)
+            # Check if this slot already fired today
+            slot_last_date = last_reminded.get(t, "")
+
+            if target <= now:
+                if slot_last_date != today:
+                    # This slot's time has passed today but never fired.
+                    # Only fire catch-up if the state is still Pending (user hasn't acted yet)
+                    if self._state == STATE_PENDING:
+                        _LOGGER.info(
+                            "%s: catch-up reminder for missed slot %s",
+                            self.entity_id, t,
+                        )
+                        self.hass.async_create_task(self._fire_slot(t))
+                # Schedule for tomorrow regardless
+                target += timedelta(days=1)
+            # else: target is in the future today, schedule normally
+
+            def _cb(_, hhi=hh, mmi=mm, slot=t):
+                self.hass.async_create_task(self._fire_slot(slot))
+                self._reschedule_time(hhi, mmi, slot)
 
             unsub = async_track_point_in_time(self.hass, _cb, target)
             self._unsubs.append(unsub)
 
-    def _reschedule_time(self, hh: int, mm: int) -> None:
+    async def _fire_slot(self, time_slot: str) -> None:
+        """Fire a reminder for a specific time slot and record it."""
+        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        await history.set_last_reminded(self.entity_id, time_slot, _today_str())
+        await self._async_send_reminder()
+
+    def _reschedule_time(self, hh: int, mm: int, time_slot: str) -> None:
         next_time = dt_util.now().replace(hour=hh, minute=mm, second=0, microsecond=0) + timedelta(days=1)
 
-        def _cb(_, hhi=hh, mmi=mm):
-            self.hass.async_create_task(self._async_send_reminder())
-            self._reschedule_time(hhi, mmi)
+        def _cb(_, hhi=hh, mmi=mm, slot=time_slot):
+            self.hass.async_create_task(self._fire_slot(slot))
+            self._reschedule_time(hhi, mmi, slot)
 
         unsub = async_track_point_in_time(self.hass, _cb, next_time)
         self._unsubs.append(unsub)
 
+    def _schedule_midnight_reset(self) -> None:
+        """Schedule a daily reset to Pending at midnight."""
+        if self._midnight_unsub:
+            self._midnight_unsub()
+            self._midnight_unsub = None
+
+        now = dt_util.now()
+        midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        def _cb(_):
+            self.hass.async_create_task(self._async_midnight_reset())
+
+        self._midnight_unsub = async_track_point_in_time(self.hass, _cb, midnight)
+
+    async def _async_midnight_reset(self) -> None:
+        """Reset state to Pending at midnight and reschedule."""
+        old_state = self._state
+        self._state = STATE_PENDING
+        self._last_action = None
+        self._cancel_nags()
+        self.async_write_ha_state()
+
+        # Persist the reset
+        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        await history.set_last_state(self.entity_id, STATE_PENDING, dt_util.now().isoformat(), _today_str())
+        await history.set_snooze_until(self.entity_id, None)
+
+        # Fire event for automations
+        if old_state != STATE_PENDING:
+            self.hass.bus.async_fire(EVENT_STATE_CHANGED, {
+                "entity_id": self.entity_id,
+                "old_state": old_state,
+                "new_state": STATE_PENDING,
+                "timestamp": dt_util.now().isoformat(),
+            })
+
+        # Reschedule midnight for next day
+        self._schedule_midnight_reset()
+
+        _LOGGER.debug("%s: midnight reset to Pending", self.entity_id)
+
     async def _async_send_reminder(self) -> None:
-        message = f"Time to take {self._dose} ({self._name})"
-        await self.hass.services.async_call(
-            "persistent_notification",
-            "create",
-            {"title": f"Medication Reminder: {self._name}", "message": message},
-            blocking=False,
-        )
+        message = f"Time to take {self._dose} ({self._name})" if self._dose else f"Time to take {self._name}"
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {"title": f"Medication Reminder: {self._name}", "message": message},
+                blocking=False,
+            )
+        except Exception:
+            _LOGGER.warning("%s: failed to create persistent notification", self.entity_id)
+
         # Mobile actionable notification(s)
         if self._notify_services:
             actions = [
@@ -317,38 +465,79 @@ class MedicationSensor(SensorEntity):
                 "action_data": {"entity_id": self.entity_id, "minutes": self._snooze_minutes},
             }
             for service in self._notify_services:
-                await self.hass.services.async_call(
-                    "notify",
-                    service,
-                    {"title": f"Medication Reminder: {self._name}", "message": message, "data": data},
-                    blocking=False,
-                )
-        # Do not change state automatically; keep Pending until user acts
+                try:
+                    await self.hass.services.async_call(
+                        "notify",
+                        service,
+                        {"title": f"Medication Reminder: {self._name}", "message": message, "data": data},
+                        blocking=False,
+                    )
+                except Exception:
+                    _LOGGER.warning("%s: failed to call notify.%s", self.entity_id, service)
+
         self._last_action = _LastAction(status="Reminder", timestamp=dt_util.now().isoformat())
         self.async_write_ha_state()
         self._start_nags()
 
     async def async_mark(self, status: str) -> None:
+        old_state = self._state
         self._state = status
-        self._last_action = _LastAction(status=status, timestamp=dt_util.now().isoformat())
+        now_iso = dt_util.now().isoformat()
+        self._last_action = _LastAction(status=status, timestamp=now_iso)
         self.async_write_ha_state()
-        # Cancel nags on any explicit action
         self._cancel_nags()
+
+        # Persist state for restart recovery
+        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        await history.set_last_state(self.entity_id, status, now_iso, _today_str())
+
+        # Clear snooze on any explicit action
+        if status != STATE_SNOOZED:
+            await history.set_snooze_until(self.entity_id, None)
+
         if status.lower().startswith("take"):
             await self._handle_refill_after_taken()
+
+        # Fire HA event for automations
+        if old_state != status:
+            self.hass.bus.async_fire(EVENT_STATE_CHANGED, {
+                "entity_id": self.entity_id,
+                "old_state": old_state,
+                "new_state": status,
+                "timestamp": now_iso,
+            })
 
     async def async_snooze(self, minutes: int = DEFAULT_SNOOZE_MINUTES) -> None:
         when = dt_util.now() + timedelta(minutes=minutes)
 
+        # Persist snooze for restart recovery
+        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        await history.set_snooze_until(self.entity_id, when.isoformat())
+
         def _cb(_):
-            self.hass.async_create_task(self._async_send_reminder())
+            self.hass.async_create_task(self._snooze_expired())
 
         unsub = async_track_point_in_time(self.hass, _cb, when)
         self._unsubs.append(unsub)
+
+        old_state = self._state
         self._state = STATE_SNOOZED
-        self._last_action = _LastAction(status=STATE_SNOOZED, timestamp=dt_util.now().isoformat())
+        now_iso = dt_util.now().isoformat()
+        self._last_action = _LastAction(status=STATE_SNOOZED, timestamp=now_iso)
         self.async_write_ha_state()
         self._cancel_nags()
+
+        # Persist state
+        await history.set_last_state(self.entity_id, STATE_SNOOZED, now_iso, _today_str())
+
+        # Fire event
+        if old_state != STATE_SNOOZED:
+            self.hass.bus.async_fire(EVENT_STATE_CHANGED, {
+                "entity_id": self.entity_id,
+                "old_state": old_state,
+                "new_state": STATE_SNOOZED,
+                "timestamp": now_iso,
+            })
 
     @property
     def snooze_minutes(self) -> int:
@@ -492,7 +681,6 @@ class MedicationAdherenceSensor(SensorEntity):
         expected = days * len(self._times or [])
         since = dt_util.now() - timedelta(days=days)
         counts = self._history.counts_since(self._source_entity_id, since)
-        # adherence percent
         self._state = None if expected == 0 else round((counts.get("taken", 0) / expected) * 100)
         return counts, expected
 
@@ -504,7 +692,6 @@ class MedicationAdherenceSensor(SensorEntity):
                 self.async_write_ha_state()
 
         self._unsub_dispatcher = async_dispatcher_connect(self.hass, SIGNAL_HISTORY_UPDATED, _updated)
-        # Initial compute
         self._compute_counts()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -531,7 +718,7 @@ class MedicationStatsSensor(SensorEntity):
         self._history = history
         self._source_entity_id = source_entity_id
         self._slug = slug
-        self._state: Optional[int] = None  # percent last 30d
+        self._state: Optional[int] = None
         self._attr_name = f"{name} Stats"
         self._attr_unique_id = f"med_{slug}_stats"
         self.entity_id = async_generate_entity_id("sensor.{}", f"medication_{slug}_stats", hass=hass)
@@ -556,7 +743,6 @@ class MedicationStatsSensor(SensorEntity):
 
     @property
     def native_value(self):
-        # 30-day adherence percent
         data = self._period_counts(30)
         exp = data.get("expected", 0)
         self._state = None if exp == 0 else round((data.get("taken", 0) / exp) * 100)

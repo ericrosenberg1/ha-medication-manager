@@ -11,6 +11,20 @@ class MedicationDailyCard extends HTMLElement {
     this._render();
   }
 
+  /** Return YYYY-MM-DD in LOCAL time (not UTC). */
+  _localDateStr(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  /** Convert ISO timestamp to local YYYY-MM-DD. */
+  _eventLocalDate(ts) {
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? '' : this._localDateStr(d);
+  }
+
   _render() {
     if (!this._hass || !this.config) return;
     const card = document.createElement('ha-card');
@@ -19,7 +33,7 @@ class MedicationDailyCard extends HTMLElement {
     container.style.padding = '0 16px 16px 16px';
 
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    const todayStr = this._localDateStr(now);
 
     for (const entity of this.config.entities) {
       const st = this._hass.states[entity];
@@ -28,7 +42,9 @@ class MedicationDailyCard extends HTMLElement {
       const times = st.attributes.times || [];
       const adherenceId = entity + '_adherence';
       const adh = this._hass.states[adherenceId];
-      const events = (adh?.attributes?.recent_events || []).filter(e => (e.timestamp || '').startsWith(todayStr));
+      // Filter events to today using LOCAL date comparison
+      const events = (adh?.attributes?.recent_events || [])
+        .filter(e => this._eventLocalDate(e.timestamp || '') === todayStr);
       const takenToday = events.filter(e => (e.status || '').toLowerCase().startsWith('take')).length;
       const skippedToday = events.filter(e => (e.status || '').toLowerCase().startsWith('skip')).length;
 
@@ -42,8 +58,9 @@ class MedicationDailyCard extends HTMLElement {
 
       const pastSlots = slots.filter(s => s.date <= now);
       const futureSlots = slots.filter(s => s.date > now);
+      // Only count as missed if the time has passed AND we don't have a taken/skipped event for it
       const missedCount = Math.max(0, pastSlots.length - takenToday - skippedToday);
-      const missedSlots = pastSlots.slice(-missedCount).map(s => s.label);
+      const missedSlots = missedCount > 0 ? pastSlots.slice(-missedCount).map(s => s.label) : [];
       const upcoming = futureSlots.map(s => s.label);
 
       const section = document.createElement('div');
@@ -56,6 +73,7 @@ class MedicationDailyCard extends HTMLElement {
       const summary = document.createElement('div');
       summary.textContent = `Taken ${takenToday}/${slots.length}, Skipped ${skippedToday}, Missed ${missedCount}`;
       summary.style.margin = '4px 0 8px 0';
+      summary.style.color = 'var(--secondary-text-color, #888)';
       section.appendChild(summary);
 
       const lists = document.createElement('div');
@@ -63,11 +81,12 @@ class MedicationDailyCard extends HTMLElement {
       lists.style.gridTemplateColumns = '1fr 1fr';
       lists.style.gap = '8px 16px';
 
-      const mkList = (label, items) => {
+      const mkList = (label, items, color) => {
         const d = document.createElement('div');
         const h = document.createElement('div');
         h.style.fontWeight = '500';
         h.textContent = label;
+        if (color) h.style.color = color;
         d.appendChild(h);
         const ul = document.createElement('ul');
         ul.style.listStyle = 'none';
@@ -76,6 +95,7 @@ class MedicationDailyCard extends HTMLElement {
         if (items.length === 0) {
           const li = document.createElement('li');
           li.textContent = 'None';
+          li.style.color = 'var(--secondary-text-color, #888)';
           ul.appendChild(li);
         } else {
           for (const it of items) {
@@ -89,7 +109,7 @@ class MedicationDailyCard extends HTMLElement {
       };
 
       lists.appendChild(mkList('Upcoming', upcoming));
-      lists.appendChild(mkList('Missed', missedSlots));
+      lists.appendChild(mkList('Missed', missedSlots, missedSlots.length ? 'var(--error-color, #f44336)' : null));
       section.appendChild(lists);
       container.appendChild(section);
     }

@@ -23,11 +23,24 @@ class HistoryManager:
         self._store: Store = Store(hass, HISTORY_STORE_VERSION, HISTORY_STORE_KEY)
         self._events: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         self._refill: Dict[str, Dict[str, Any]] = {}
+        # Tracks the last date each time slot fired per entity (for restart recovery)
+        # Format: {entity_id: {"08:00": "2026-04-04", "20:00": "2026-04-04"}}
+        self._last_reminded: Dict[str, Dict[str, str]] = {}
+        # Tracks active snooze expiry per entity (for restart recovery)
+        # Format: {entity_id: "2026-04-04T08:15:00+00:00"}
+        self._snooze_until: Dict[str, str] = {}
+        # Tracks last state per entity (for restart recovery)
+        # Format: {entity_id: {"state": "Taken", "timestamp": "...", "date": "2026-04-04"}}
+        self._last_state: Dict[str, Dict[str, str]] = {}
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
         events = data.get("events", {})
         refill = data.get("refill", {})
+        # Load persisted reminder/snooze/state data
+        self._last_reminded = data.get("last_reminded", {})
+        self._snooze_until = data.get("snooze_until", {})
+        self._last_state = data.get("last_state", {})
         # Basic validation
         for eid, lst in events.items():
             if isinstance(lst, list):
@@ -58,7 +71,13 @@ class HistoryManager:
             self._refill = out
 
     async def _async_save(self) -> None:
-        await self._store.async_save({"events": self._events, "refill": self._refill})
+        await self._store.async_save({
+            "events": self._events,
+            "refill": self._refill,
+            "last_reminded": self._last_reminded,
+            "snooze_until": self._snooze_until,
+            "last_state": self._last_state,
+        })
 
     async def record(self, entity_id: str, status: str, timestamp_iso: str) -> None:
         lst = self._events[entity_id]
@@ -141,3 +160,40 @@ class HistoryManager:
         self._refill[entity_id] = info
         await self._async_save()
         return info
+
+    # --- Reminder state persistence (for restart recovery) ---
+
+    async def set_last_reminded(self, entity_id: str, time_slot: str, date_str: str) -> None:
+        """Record that a time slot's reminder fired on a given date (YYYY-MM-DD)."""
+        slots = self._last_reminded.setdefault(entity_id, {})
+        slots[time_slot] = date_str
+        await self._async_save()
+
+    def get_last_reminded(self, entity_id: str) -> Dict[str, str]:
+        """Return {time_slot: date_str} for an entity."""
+        return dict(self._last_reminded.get(entity_id, {}))
+
+    async def set_snooze_until(self, entity_id: str, until_iso: str | None) -> None:
+        """Store or clear the snooze expiry for an entity."""
+        if until_iso is None:
+            self._snooze_until.pop(entity_id, None)
+        else:
+            self._snooze_until[entity_id] = until_iso
+        await self._async_save()
+
+    def get_snooze_until(self, entity_id: str) -> str | None:
+        """Return the ISO snooze expiry or None."""
+        return self._snooze_until.get(entity_id)
+
+    async def set_last_state(self, entity_id: str, state: str, timestamp: str, date_str: str) -> None:
+        """Persist the last known state for restart recovery."""
+        self._last_state[entity_id] = {
+            "state": state,
+            "timestamp": timestamp,
+            "date": date_str,
+        }
+        await self._async_save()
+
+    def get_last_state(self, entity_id: str) -> Dict[str, str] | None:
+        """Return persisted state info or None."""
+        return self._last_state.get(entity_id)

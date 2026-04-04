@@ -28,3 +28,6 @@ STATE_SNOOZED = "Snoozed"
 HISTORY_STORE_KEY = f"{DOMAIN}_history"
 HISTORY_STORE_VERSION = 1
 SIGNAL_HISTORY_UPDATED = f"{DOMAIN}_history_updated"
+
+# Event fired on state changes (for automations)
+EVENT_STATE_CHANGED = f"{DOMAIN}_state_changed"

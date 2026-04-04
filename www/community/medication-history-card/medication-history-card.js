@@ -31,7 +31,8 @@ class MedicationHistoryCard extends HTMLElement {
 
       const title = document.createElement('div');
       title.style.fontWeight = '600';
-      title.textContent = `${name} — ${percent}${st.attributes.unit_of_measurement || ''}`;
+      const pctDisplay = percent != null && percent !== '' && !isNaN(percent) ? `${percent}%` : '--';
+      title.textContent = `${name} \u2014 ${pctDisplay}`;
       section.appendChild(title);
 
       const stats = document.createElement('div');
@@ -41,6 +42,8 @@ class MedicationHistoryCard extends HTMLElement {
       const e = st.attributes.expected_7d || 0;
       stats.textContent = `Last 7d: taken ${t}/${e}, skipped ${s}, snoozed ${z}`;
       stats.style.margin = '4px 0 8px 0';
+      stats.style.color = 'var(--secondary-text-color, #888)';
+      stats.style.fontSize = '0.9rem';
       section.appendChild(stats);
 
       const table = document.createElement('table');
@@ -54,6 +57,7 @@ class MedicationHistoryCard extends HTMLElement {
         th.style.textAlign = 'left';
         th.style.borderBottom = '1px solid var(--divider-color)';
         th.style.padding = '4px 8px';
+        th.style.fontSize = '0.85rem';
         trh.appendChild(th);
       }
       thead.appendChild(trh);
@@ -65,9 +69,24 @@ class MedicationHistoryCard extends HTMLElement {
         const td1 = document.createElement('td');
         const td2 = document.createElement('td');
         td1.style.padding = td2.style.padding = '4px 8px';
+        td1.style.fontSize = td2.style.fontSize = '0.85rem';
+        // Use local time display
         const d = new Date(ev.timestamp || ev.time || 0);
         td1.textContent = isNaN(d.getTime()) ? (ev.timestamp || '') : d.toLocaleString();
-        td2.textContent = ev.status || '';
+
+        const status = ev.status || '';
+        td2.textContent = status;
+        // Color code the status
+        const sl = status.toLowerCase();
+        if (sl.startsWith('take')) {
+          td2.style.color = 'var(--success-color, #4caf50)';
+          td2.style.fontWeight = '500';
+        } else if (sl.startsWith('skip')) {
+          td2.style.color = 'var(--warning-color, #ff9800)';
+        } else if (sl.startsWith('snooz')) {
+          td2.style.color = 'var(--accent-color, #ff6f00)';
+        }
+
         tr.appendChild(td1);
         tr.appendChild(td2);
         tbody.appendChild(tr);

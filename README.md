@@ -4,7 +4,7 @@
 
 Created by [Eric Rosenberg](https://ericrosenberg.com) • Projects/links: [eric.money](https://eric.money)
 
-Unlike existing blueprints or cloud‑dependent solutions, this project is **local‑first**, **fully configurable in the UI**, and integrates seamlessly with Home Assistant automations.
+Unlike existing blueprints or cloud‑dependent solutions, this project is **local‑first**, **fully configurable in the UI**, and designed specifically for Home Assistant.
 
 ---
 
@@ -37,17 +37,6 @@ Unlike existing blueprints or cloud‑dependent solutions, this project is **loc
 
 - **Automation‑Friendly**  
   Expose medication states as entities for use in automations (e.g., flash lights every 5 minutes until a dose is marked Taken).
-
----
-
-## **Why This Project?**
-While there are great blueprints for medication reminders and cloud‑based integrations (like Medisafe), there was no **all‑in‑one, local‑only solution** with:
-- Per‑medication entities
-- A UI card for managing medications
-- Built‑in snooze and logging
-- Full automation hooks
-
-This project fills that gap.
 
 ---
 

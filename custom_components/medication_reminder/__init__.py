@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import logging
 
+import voluptuous as vol
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.service import async_extract_entity_ids
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.helpers import config_validation as cv
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -16,14 +20,38 @@ from .const import (
     DEFAULT_SNOOZE_MINUTES,
 )
 from .history import HistoryManager
-from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
+
+# Service schemas
+MARK_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_ids,
+})
+
+SNOOZE_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_ids,
+    vol.Optional("minutes"): vol.All(vol.Coerce(int), vol.Range(min=1, max=1440)),
+})
+
+REFILL_SET_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_ids,
+    vol.Optional("remaining"): vol.All(vol.Coerce(int), vol.Range(min=0)),
+    vol.Optional("threshold"): vol.All(vol.Coerce(int), vol.Range(min=0)),
+    vol.Optional("units_per_intake"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+})
+
+REFILL_ADD_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_ids,
+    vol.Required("amount"): vol.All(vol.Coerce(int)),
+})
+
+REFILL_ACK_SCHEMA = vol.Schema({
+    vol.Optional("entity_id"): cv.entity_ids,
+})
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Medication Reminder from a config entry."""
-    # Ensure domain data is initialized
     store = hass.data.setdefault(DOMAIN, {})
     store.setdefault("entities", {})
     if "history" not in store:
@@ -71,17 +99,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     minutes = int(raw_minutes) if raw_minutes is not None else int(entity.snooze_minutes)
                 except (TypeError, ValueError):
                     minutes = DEFAULT_SNOOZE_MINUTES
-                if minutes < 1:
-                    minutes = 1
-                if minutes > 1440:
-                    minutes = 1440
+                minutes = max(1, min(1440, minutes))
                 await entity.async_snooze(minutes)
                 await hass.data[DOMAIN]["history"].record(eid, "Snoozed", dt_util.now().isoformat())
 
-        hass.services.async_register(DOMAIN, "mark_taken", mark_taken)
-        hass.services.async_register(DOMAIN, "mark_skipped", mark_skipped)
-        hass.services.async_register(DOMAIN, "mark_snoozed", mark_snoozed)
-        # Optional reset service
         async def mark_pending(call: ServiceCall):
             entity_ids = async_extract_entity_ids(hass, call)
             if not entity_ids:
@@ -91,9 +112,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if not entity:
                     raise HomeAssistantError(f"Medication entity not found: {eid}")
                 await entity.async_mark("Pending")
-        hass.services.async_register(DOMAIN, "mark_pending", mark_pending)
 
-        # Refill helpers
         async def refill_set(call: ServiceCall):
             entity_ids = async_extract_entity_ids(hass, call)
             if not entity_ids:
@@ -121,10 +140,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             amount = call.data.get("amount")
             if amount is None:
                 raise HomeAssistantError("amount is required")
-            try:
-                amount = int(amount)
-            except (TypeError, ValueError) as err:
-                raise HomeAssistantError("amount must be integer") from err
+            amount = int(amount)
             hist: HistoryManager = hass.data[DOMAIN]["history"]
             for eid in entity_ids:
                 cur = hist.get_refill(eid)
@@ -141,9 +157,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for eid in entity_ids:
                 await hist.adjust_refill(eid, alerted=False)
 
-        hass.services.async_register(DOMAIN, "refill_set", refill_set)
-        hass.services.async_register(DOMAIN, "refill_add", refill_add)
-        hass.services.async_register(DOMAIN, "refill_acknowledge", refill_acknowledge)
+        hass.services.async_register(DOMAIN, "mark_taken", mark_taken, schema=MARK_SCHEMA)
+        hass.services.async_register(DOMAIN, "mark_skipped", mark_skipped, schema=MARK_SCHEMA)
+        hass.services.async_register(DOMAIN, "mark_snoozed", mark_snoozed, schema=SNOOZE_SCHEMA)
+        hass.services.async_register(DOMAIN, "mark_pending", mark_pending, schema=MARK_SCHEMA)
+        hass.services.async_register(DOMAIN, "refill_set", refill_set, schema=REFILL_SET_SCHEMA)
+        hass.services.async_register(DOMAIN, "refill_add", refill_add, schema=REFILL_ADD_SCHEMA)
+        hass.services.async_register(DOMAIN, "refill_acknowledge", refill_acknowledge, schema=REFILL_ACK_SCHEMA)
         store["services_registered"] = True
         _LOGGER.debug("%s: services registered", DOMAIN)
 
@@ -171,10 +191,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     minutes = int(minutes) if minutes is not None else int(entity.snooze_minutes)
                 except (TypeError, ValueError):
                     minutes = DEFAULT_SNOOZE_MINUTES
-                if minutes < 1:
-                    minutes = 1
-                if minutes > 1440:
-                    minutes = 1440
+                minutes = max(1, min(1440, minutes))
                 await entity.async_snooze(minutes)
                 await hass.data[DOMAIN]["history"].record(entity_id, "Snoozed", dt_util.now().isoformat())
 
@@ -195,19 +212,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     any_loaded = any(e.state == ConfigEntryState.LOADED and e.entry_id != entry.entry_id for e in entries)
     store = hass.data.get(DOMAIN, {})
     if not any_loaded:
-        # Unregister services
         for svc in ("mark_taken", "mark_skipped", "mark_snoozed", "mark_pending", "refill_set", "refill_add", "refill_acknowledge"):
             if hass.services.has_service(DOMAIN, svc):
                 hass.services.async_remove(DOMAIN, svc)
-        # Remove mobile listener
         unsub = store.get("mobile_unsub")
         if unsub:
             try:
                 unsub()
-            except Exception:  # best-effort
+            except Exception:
                 pass
             store["mobile_unsub"] = None
-        # Clear entities map and history manager
         store.get("entities", {}).clear()
         store.pop("history", None)
         store["services_registered"] = False

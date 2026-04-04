@@ -20,12 +20,31 @@ class MedicationSummaryCard extends HTMLElement {
 
     const mkRow = (title, d) => {
       const tr = document.createElement('tr');
+      const taken = d.taken || 0;
+      const expected = d.expected || 0;
+      const skipped = d.skipped || 0;
+      const missed = d.missed || 0;
+      const pct = expected > 0 ? Math.round((taken / expected) * 100) : 0;
+
       const td0 = document.createElement('td'); td0.textContent = title; tr.appendChild(td0);
-      const td1 = document.createElement('td'); td1.textContent = `${d.taken || 0}/${d.expected || 0}`; tr.appendChild(td1);
-      const td2 = document.createElement('td'); td2.textContent = `${d.skipped || 0}`; tr.appendChild(td2);
-      const td3 = document.createElement('td'); td3.textContent = `${d.missed || 0}`; tr.appendChild(td3);
-      const pct = (d.expected ? Math.round((d.taken || 0) / d.expected * 100) : 0);
-      const td4 = document.createElement('td'); td4.textContent = `${isNaN(pct) ? 0 : pct}%`; tr.appendChild(td4);
+      const td1 = document.createElement('td'); td1.textContent = `${taken}/${expected}`; tr.appendChild(td1);
+      const td2 = document.createElement('td'); td2.textContent = `${skipped}`; tr.appendChild(td2);
+      const td3 = document.createElement('td'); td3.textContent = `${missed}`; tr.appendChild(td3);
+      const td4 = document.createElement('td');
+      td4.textContent = `${pct}%`;
+      // Color the adherence percentage
+      if (pct >= 80) td4.style.color = 'var(--success-color, #4caf50)';
+      else if (pct >= 50) td4.style.color = 'var(--warning-color, #ff9800)';
+      else if (expected > 0) td4.style.color = 'var(--error-color, #f44336)';
+      td4.style.fontWeight = '600';
+      tr.appendChild(td4);
+
+      // Style all cells
+      [td0, td1, td2, td3, td4].forEach(td => {
+        td.style.padding = '4px 8px';
+        td.style.fontSize = '0.85rem';
+      });
+
       return tr;
     };
 
@@ -52,22 +71,23 @@ class MedicationSummaryCard extends HTMLElement {
       table.style.borderCollapse = 'collapse';
       const thead = document.createElement('thead');
       const trh = document.createElement('tr');
-      for (const h of ['Period', 'Taken/Expected', 'Skipped', 'Missed', 'Adherence']) {
+      for (const h of ['Period', 'Taken', 'Skipped', 'Missed', 'Adherence']) {
         const th = document.createElement('th');
         th.textContent = h;
         th.style.textAlign = 'left';
         th.style.borderBottom = '1px solid var(--divider-color)';
         th.style.padding = '4px 8px';
+        th.style.fontSize = '0.85rem';
         trh.appendChild(th);
       }
       thead.appendChild(trh);
       table.appendChild(thead);
 
       const tbody = document.createElement('tbody');
-      tbody.appendChild(mkRow('Daily', daily));
-      tbody.appendChild(mkRow('Weekly', weekly));
-      tbody.appendChild(mkRow('Monthly', monthly));
-      tbody.appendChild(mkRow('Yearly', yearly));
+      tbody.appendChild(mkRow('Today', daily));
+      tbody.appendChild(mkRow('7 Days', weekly));
+      tbody.appendChild(mkRow('30 Days', monthly));
+      tbody.appendChild(mkRow('Year', yearly));
       table.appendChild(tbody);
       section.appendChild(table);
 
