@@ -89,3 +89,9 @@ refill_acknowledge:
     entity_id:
       description: Medication entity
       example: sensor.medication_aspirin
+
+check_interactions:
+  description: Check for drug interactions between configured medications
+  target:
+    entity:
+      domain: sensor
