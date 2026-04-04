@@ -4,11 +4,11 @@
     "step": {
       "user": {
         "title": "Add Medication",
-        "description": "Enter the medication details.",
+        "description": "Enter the medication name and schedule. Drug information is automatically looked up from the FDA database when available.\n\n{disclaimer}",
         "data": {
-          "name": "Name",
-          "dose": "Dose",
-          "times": "Times (HH:MM, comma-separated)"
+          "name": "Medication Name",
+          "dose": "Dose (e.g., 500mg)",
+          "times": "Reminder Times (HH:MM, comma-separated)"
         }
       }
     },

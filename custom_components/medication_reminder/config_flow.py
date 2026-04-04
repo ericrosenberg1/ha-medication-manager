@@ -1,40 +1,17 @@
 """Config flow for Medication Reminder integration."""
 from __future__ import annotations
 
+import logging
+
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN, ATTR_NAME, ATTR_DOSE, ATTR_TIMES
+from .const import DOMAIN, ATTR_NAME, ATTR_DOSE, ATTR_TIMES, ATTR_RXCUI, ATTR_DRUG_INFO
+from .helpers import slugify, normalize_times, DISCLAIMER_SHORT
+from .api import search_medications, get_drug_details
 
-
-def _slugify(name: str) -> str:
-    base = "".join(ch if ch.isalnum() else "_" for ch in name.lower())
-    return "_".join([p for p in base.split("_") if p])
-
-
-def _normalize_times(value: str) -> list[str]:
-    items = [v.strip() for v in value.split(",")]
-    out: list[str] = []
-    for t in items:
-        if not t:
-            continue
-        try:
-            hh, mm = t.split(":")
-            hhi = int(hh)
-            mmi = int(mm)
-        except Exception as err:
-            raise vol.Invalid(f"Invalid time format: {t}") from err
-        if not (0 <= hhi <= 23 and 0 <= mmi <= 59):
-            raise vol.Invalid(f"Invalid time value: {t}")
-        out.append(f"{hhi:02d}:{mmi:02d}")
-    # de-duplicate
-    seen = set()
-    unique: list[str] = []
-    for t in out:
-        if t not in seen:
-            seen.add(t)
-            unique.append(t)
-    return unique
+_LOGGER = logging.getLogger(__name__)
 
 
 class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -45,26 +22,53 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return MedicationReminderOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input=None):
+        """Step 1: Enter medication name, dose, and times.
+
+        The name field doubles as an FDA database search. If an RxCUI match is
+        found, drug details (dosage text, interaction warnings) are stored
+        alongside the config entry for use by the interaction sensor.
+        """
         errors = {}
         if user_input is not None:
             try:
                 name = user_input.get(ATTR_NAME, "").strip()
                 dose = user_input.get(ATTR_DOSE, "").strip()
                 times_raw = user_input.get(ATTR_TIMES, "").strip()
-                times = _normalize_times(times_raw)
+                times = normalize_times(times_raw)
 
                 if not name:
                     errors[ATTR_NAME] = "required"
                 elif not times:
                     errors[ATTR_TIMES] = "required"
                 else:
-                    slug = _slugify(name)
+                    slug = slugify(name)
                     await self.async_set_unique_id(f"med_{slug}")
                     self._abort_if_unique_id_configured()
-                    title = name
-                    data = {ATTR_NAME: name, ATTR_DOSE: dose, ATTR_TIMES: times}
-                    return self.async_create_entry(title=title, data=data)
-            except vol.Invalid as err:
+
+                    # Try FDA lookup for rxcui and drug info
+                    rxcui = ""
+                    drug_info: dict = {}
+                    try:
+                        session = async_get_clientsession(self.hass)
+                        results = await search_medications(session, name, max_results=1)
+                        if results:
+                            rxcui = results[0].get("rxcui", "")
+                            if rxcui:
+                                details = await get_drug_details(session, rxcui)
+                                if details:
+                                    drug_info = details
+                    except Exception:
+                        _LOGGER.debug("FDA lookup failed for %s, continuing without", name)
+
+                    data = {
+                        ATTR_NAME: name,
+                        ATTR_DOSE: dose,
+                        ATTR_TIMES: times,
+                        ATTR_RXCUI: rxcui,
+                        ATTR_DRUG_INFO: drug_info,
+                    }
+                    return self.async_create_entry(title=name, data=data)
+            except vol.Invalid:
                 errors["base"] = "invalid_times"
 
         schema = vol.Schema(
@@ -73,13 +77,16 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(ATTR_DOSE, default=""): str,
                 vol.Required(
                     ATTR_TIMES,
-                    description={
-                        "suggested_value": "08:00, 20:00",
-                    },
+                    description={"suggested_value": "08:00, 20:00"},
                 ): str,
             }
         )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"disclaimer": DISCLAIMER_SHORT},
+        )
 
 
 class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
@@ -92,7 +99,7 @@ class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
             try:
                 dose = (user_input.get(ATTR_DOSE) or "").strip()
                 times_raw = (user_input.get(ATTR_TIMES) or "")
-                times = _normalize_times(times_raw)
+                times = normalize_times(times_raw)
                 snooze = int(user_input.get("snooze_minutes", 5))
                 if snooze < 1:
                     snooze = 1

@@ -19,6 +19,7 @@ from .const import (
     STATE_SKIPPED,
     DEFAULT_SNOOZE_MINUTES,
 )
+from .helpers import is_valid_medication_entity_id
 from .history import HistoryManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -176,6 +177,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entity_id = ad.get("entity_id") or data.get("tag")
             if not entity_id:
                 return
+            if not is_valid_medication_entity_id(entity_id):
+                _LOGGER.warning("Ignoring mobile action with invalid entity_id: %s", entity_id)
+                return
             entity = hass.data[DOMAIN]["entities"].get(entity_id)
             if not entity:
                 return
@@ -220,7 +224,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             try:
                 unsub()
             except Exception:
-                pass
+                _LOGGER.debug("Error unsubscribing mobile listener", exc_info=True)
             store["mobile_unsub"] = None
         store.get("entities", {}).clear()
         store.pop("history", None)

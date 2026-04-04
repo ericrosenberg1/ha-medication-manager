@@ -242,9 +242,10 @@ class MedicationCard extends HTMLElement {
         return b;
       };
 
+      const isSnoozed = state.startsWith('snooz');
       actions.appendChild(mkBtn('Taken', 'btn-taken', 'mark_taken', isTaken));
       actions.appendChild(mkBtn('Skip', 'btn-skip', 'mark_skipped', isSkipped));
-      actions.appendChild(mkBtn('Snooze', 'btn-snooze', 'mark_snoozed', isTaken || isSkipped));
+      actions.appendChild(mkBtn('Snooze', 'btn-snooze', 'mark_snoozed', isTaken || isSkipped || isSnoozed));
 
       item.appendChild(actions);
       list.appendChild(item);
@@ -257,7 +258,12 @@ class MedicationCard extends HTMLElement {
       list.appendChild(msg);
     }
 
+    // Healthcare disclaimer footer
+    const disclaimer = document.createElement('div');
+    disclaimer.style.cssText = 'padding: 8px 16px; font-size: 0.7rem; color: var(--secondary-text-color, #888); border-top: 1px solid var(--divider-color, #e0e0e0); text-align: center;';
+    disclaimer.textContent = 'Reminder tool only. Not medical advice. Consult your physician.';
     card.appendChild(list);
+    card.appendChild(disclaimer);
     root.appendChild(card);
   }
 

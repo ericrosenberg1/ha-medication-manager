@@ -3,11 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 import logging
 import re
-
-import voluptuous as vol
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
@@ -32,43 +30,10 @@ from .const import (
     STATE_SKIPPED,
     SIGNAL_HISTORY_UPDATED,
 )
+from .helpers import slugify, parse_times
 from .history import HistoryManager
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _slugify(name: str) -> str:
-    base = "".join(ch if ch.isalnum() else "_" for ch in name.lower())
-    return "_".join([p for p in base.split("_") if p])
-
-
-def _parse_times(value: str | list[str]) -> list[str]:
-    """Parse HH:MM or list of HH:MM values; return normalized list."""
-    if isinstance(value, list):
-        items = value
-    else:
-        items = [v.strip() for v in value.split(",")]
-    out: list[str] = []
-    for t in items:
-        if not t:
-            continue
-        try:
-            hh, mm = t.split(":")
-            hhi = int(hh)
-            mmi = int(mm)
-        except Exception as err:
-            raise vol.Invalid(f"Invalid time format: {t}") from err
-        if not (0 <= hhi <= 23 and 0 <= mmi <= 59):
-            raise vol.Invalid(f"Invalid time value: {t}")
-        out.append(f"{hhi:02d}:{mmi:02d}")
-    # remove duplicates, keep order
-    seen = set()
-    unique: list[str] = []
-    for t in out:
-        if t not in seen:
-            seen.add(t)
-            unique.append(t)
-    return unique
 
 
 def _today_str() -> str:
@@ -82,7 +47,7 @@ async def async_setup_entry(
     name: str = entry.data.get(ATTR_NAME) or entry.title or "Medication"
     dose: str = (entry.options.get(ATTR_DOSE) or entry.data.get(ATTR_DOSE) or "").strip()
     times_raw = entry.options.get(ATTR_TIMES) or entry.data.get(ATTR_TIMES) or []
-    times = _parse_times(times_raw) if isinstance(times_raw, str) else list(times_raw)
+    times = parse_times(times_raw) if isinstance(times_raw, str) else list(times_raw)
 
     snooze_minutes = int(entry.options.get("snooze_minutes", DEFAULT_SNOOZE_MINUTES))
     notify_services_raw = (entry.options.get("notify_services") or "").strip()
@@ -132,7 +97,7 @@ async def async_setup_entry(
         times=times,
         history=history,
         source_entity_id=None,
-        slug=_slugify(name),
+        slug=slugify(name),
     )
 
     stats_entity = MedicationStatsSensor(
@@ -141,7 +106,7 @@ async def async_setup_entry(
         times=times,
         history=history,
         source_entity_id=None,
-        slug=_slugify(name),
+        slug=slugify(name),
     )
 
     # Link adherence sensor to the medication entity
@@ -153,7 +118,7 @@ async def async_setup_entry(
         new_dose = (updated_entry.options.get(ATTR_DOSE) or updated_entry.data.get(ATTR_DOSE) or "").strip()
         new_times_raw = updated_entry.options.get(ATTR_TIMES) or updated_entry.data.get(ATTR_TIMES) or []
         new_times = (
-            _parse_times(new_times_raw) if isinstance(new_times_raw, str) else list(new_times_raw)
+            parse_times(new_times_raw) if isinstance(new_times_raw, str) else list(new_times_raw)
         )
         new_snooze = int(updated_entry.options.get("snooze_minutes", DEFAULT_SNOOZE_MINUTES))
         new_notify_raw = (updated_entry.options.get("notify_services") or "").strip()
@@ -211,7 +176,7 @@ class MedicationSensor(SensorEntity):
         self._entry_id = entry_id
         self._midnight_unsub: Optional[Callable[[], None]] = None
 
-        slug = _slugify(name)
+        slug = slugify(name)
         self._attr_name = name
         self._attr_unique_id = f"med_{slug}"
         self.entity_id = async_generate_entity_id("sensor.{}", f"medication_{slug}", hass=hass)

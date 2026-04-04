@@ -31,3 +31,15 @@ SIGNAL_HISTORY_UPDATED = f"{DOMAIN}_history_updated"
 
 # Event fired on state changes (for automations)
 EVENT_STATE_CHANGED = f"{DOMAIN}_state_changed"
+EVENT_INTERACTION_WARNING = f"{DOMAIN}_interaction_warning"
+
+# API endpoints
+RXTERMS_API_URL = "https://clinicaltables.nlm.nih.gov/api/rxterms/v3/search"
+OPENFDA_LABEL_URL = "https://api.fda.gov/drug/label.json"
+
+# Cache
+INTERACTION_CACHE_TTL = 86400  # 24 hours in seconds
+
+# Drug interaction attributes
+ATTR_RXCUI = "rxcui"
+ATTR_DRUG_INFO = "drug_info"
