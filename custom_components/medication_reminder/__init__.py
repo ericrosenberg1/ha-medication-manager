@@ -21,6 +21,12 @@ from .const import (
 )
 from .helpers import is_valid_medication_entity_id
 from .history import HistoryManager
+from .sentry import maybe_init_sentry
+
+# Initialise Sentry on first import — no-op unless MEDREM_SENTRY_DSN is set
+# on the host HA instance AND sentry-sdk is installed. End users get no
+# telemetry by default.
+maybe_init_sentry()
 
 _LOGGER = logging.getLogger(__name__)
 
