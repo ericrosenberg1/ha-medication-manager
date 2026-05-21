@@ -3,9 +3,13 @@
   "name": "Medication Reminder",
   "version": "0.2.0",
   "documentation": "https://github.com/ericrosenberg1/ha-medication-manager",
-  "requirements": [],
+  "requirements": [
+    "sentry-sdk>=2.0"
+  ],
   "dependencies": [],
-  "codeowners": ["@ericrosenberg1"],
+  "codeowners": [
+    "@ericrosenberg1"
+  ],
   "iot_class": "local_push",
   "config_flow": true,
   "issue_tracker": "https://github.com/ericrosenberg1/ha-medication-manager/issues"
