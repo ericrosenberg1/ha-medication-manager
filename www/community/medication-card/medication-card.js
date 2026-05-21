@@ -16,8 +16,21 @@ class MedicationCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
-    this._render();
+    if (this._shouldUpdate(oldHass, hass)) {
+      this._render();
+    }
+  }
+
+  _shouldUpdate(oldHass, newHass) {
+    if (!oldHass || !this.config || !this.config.entities) return true;
+    for (const entity of this.config.entities) {
+      const oldSt = oldHass.states[entity];
+      const newSt = newHass.states[entity];
+      if (oldSt !== newSt) return true;
+    }
+    return false;
   }
 
   _render() {

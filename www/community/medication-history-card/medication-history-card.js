@@ -7,8 +7,21 @@ class MedicationHistoryCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
-    this._render();
+    if (this._shouldUpdate(oldHass, hass)) {
+      this._render();
+    }
+  }
+
+  _shouldUpdate(oldHass, newHass) {
+    if (!oldHass || !this.config) return true;
+    for (const entity of this.config.entities) {
+      const adhId = entity + '_adherence';
+      if (oldHass.states[entity] !== newHass.states[entity]) return true;
+      if (oldHass.states[adhId] !== newHass.states[adhId]) return true;
+    }
+    return false;
   }
 
   _render() {
@@ -115,9 +128,17 @@ class MedicationHistoryCard extends HTMLElement {
 
 customElements.define('medication-history-card', MedicationHistoryCard);
 
+MedicationHistoryCard.getStubConfig = () => ({
+  title: 'Medication History',
+  entities: ['sensor.medication_example'],
+  max_events: 10
+});
+MedicationHistoryCard.getConfigElement = () => document.createElement('medication-history-card-editor');
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'medication-history-card',
   name: 'Medication History Card',
-  description: 'Shows adherence percentage and recent events.'
+  description: 'Shows adherence percentage and recent events.',
+  preview: true,
 });

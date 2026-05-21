@@ -7,8 +7,21 @@ class MedicationPlannerCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
-    this._render();
+    if (this._shouldUpdate(oldHass, hass)) {
+      this._render();
+    }
+  }
+
+  _shouldUpdate(oldHass, newHass) {
+    if (!oldHass || !this.config) return true;
+    for (const entity of this.config.entities) {
+      const adhId = entity + '_adherence';
+      if (oldHass.states[entity] !== newHass.states[entity]) return true;
+      if (oldHass.states[adhId] !== newHass.states[adhId]) return true;
+    }
+    return false;
   }
 
   /** Return YYYY-MM-DD in LOCAL time. */
@@ -131,9 +144,16 @@ class MedicationPlannerCard extends HTMLElement {
 
 customElements.define('medication-planner-card', MedicationPlannerCard);
 
+MedicationPlannerCard.getStubConfig = () => ({
+  title: 'Medication Planner',
+  entities: ['sensor.medication_example']
+});
+MedicationPlannerCard.getConfigElement = () => document.createElement('medication-planner-card-editor');
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'medication-planner-card',
   name: 'Medication Planner Card',
-  description: '7-day planner shows taken/missed against schedule.'
+  description: '7-day planner shows taken/missed against schedule.',
+  preview: true,
 });

@@ -7,8 +7,24 @@ class MedicationSummaryCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
-    this._render();
+    if (this._shouldUpdate(oldHass, hass)) {
+      this._render();
+    }
+  }
+
+  _shouldUpdate(oldHass, newHass) {
+    if (!oldHass || !this.config) return true;
+    for (const entity of this.config.entities) {
+      const statsId = entity + '_stats';
+      const oldSt = oldHass.states[entity];
+      const newSt = newHass.states[entity];
+      const oldStats = oldHass.states[statsId];
+      const newStats = newHass.states[statsId];
+      if (oldSt !== newSt || oldStats !== newStats) return true;
+    }
+    return false;
   }
 
   _render() {
@@ -112,9 +128,16 @@ class MedicationSummaryCard extends HTMLElement {
 
 customElements.define('medication-summary-card', MedicationSummaryCard);
 
+MedicationSummaryCard.getStubConfig = () => ({
+  title: 'Medication Summary',
+  entities: ['sensor.medication_example']
+});
+MedicationSummaryCard.getConfigElement = () => document.createElement('medication-summary-card-editor');
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'medication-summary-card',
   name: 'Medication Summary Card',
-  description: 'Table of daily/weekly/monthly/yearly taken/missed stats.'
+  description: 'Table of daily/weekly/monthly/yearly taken/missed stats.',
+  preview: true,
 });

@@ -7,8 +7,21 @@ class MedicationDailyCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
-    this._render();
+    if (this._shouldUpdate(oldHass, hass)) {
+      this._render();
+    }
+  }
+
+  _shouldUpdate(oldHass, newHass) {
+    if (!oldHass || !this.config) return true;
+    for (const entity of this.config.entities) {
+      const adhId = entity + '_adherence';
+      if (oldHass.states[entity] !== newHass.states[entity]) return true;
+      if (oldHass.states[adhId] !== newHass.states[adhId]) return true;
+    }
+    return false;
   }
 
   /** Return YYYY-MM-DD in LOCAL time (not UTC). */
@@ -128,9 +141,16 @@ class MedicationDailyCard extends HTMLElement {
 
 customElements.define('medication-daily-card', MedicationDailyCard);
 
+MedicationDailyCard.getStubConfig = () => ({
+  title: "Today's Medications",
+  entities: ['sensor.medication_example']
+});
+MedicationDailyCard.getConfigElement = () => document.createElement('medication-daily-card-editor');
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'medication-daily-card',
   name: 'Medication Daily Card',
-  description: 'Shows today\'s doses: taken, upcoming, and missed.'
+  description: 'Shows today\'s doses: taken, upcoming, and missed.',
+  preview: true,
 });
