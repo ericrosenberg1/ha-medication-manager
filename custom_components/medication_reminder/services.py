@@ -5,6 +5,7 @@ import logging
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
+# async_extract_entity_ids handles both entity_id in data and target selectors
 from homeassistant.helpers.service import async_extract_entity_ids
 from homeassistant.util import dt as dt_util
 

@@ -11,7 +11,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_point_in_time, async_call_later
+from homeassistant.helpers.event import async_track_point_in_time, async_call_later, async_track_time_change
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity import async_generate_entity_id, DeviceInfo
 
@@ -355,8 +355,9 @@ class MedicationSensor(SensorEntity):
 
     async def _fire_slot(self, time_slot: str) -> None:
         """Fire a reminder for a specific time slot and record it."""
-        history: HistoryManager = self.hass.data[DOMAIN]["history"]
-        await history.set_last_reminded(self.entity_id, time_slot, _today_str())
+        history: HistoryManager | None = self.hass.data.get(DOMAIN, {}).get("history")
+        if history:
+            await history.set_last_reminded(self.entity_id, time_slot, _today_str())
         await self._async_send_reminder()
 
     def _reschedule_time(self, hh: int, mm: int, time_slot: str) -> None:
@@ -370,21 +371,23 @@ class MedicationSensor(SensorEntity):
         self._unsubs.append(unsub)
 
     def _schedule_midnight_reset(self) -> None:
-        """Schedule a daily reset to Pending at midnight."""
+        """Subscribe to midnight (00:00:00) time change — fires daily automatically."""
         if self._midnight_unsub:
             self._midnight_unsub()
             self._midnight_unsub = None
+        self._midnight_unsub = async_track_time_change(
+            self.hass,
+            self._midnight_reset_callback,
+            hour=0, minute=0, second=0,
+        )
 
-        now = dt_util.now()
-        midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-
-        def _cb(_):
-            self.hass.async_create_task(self._async_midnight_reset())
-
-        self._midnight_unsub = async_track_point_in_time(self.hass, _cb, midnight)
+    @callback
+    def _midnight_reset_callback(self, _now) -> None:
+        """Callback fired by async_track_time_change at midnight."""
+        self.hass.async_create_task(self._async_midnight_reset())
 
     async def _async_midnight_reset(self) -> None:
-        """Reset state to Pending at midnight and reschedule."""
+        """Reset state to Pending at midnight."""
         old_state = self._state
         self._state = STATE_PENDING
         self._last_action = None
@@ -392,9 +395,10 @@ class MedicationSensor(SensorEntity):
         self.async_write_ha_state()
 
         # Persist the reset
-        history: HistoryManager = self.hass.data[DOMAIN]["history"]
-        await history.set_last_state(self.entity_id, STATE_PENDING, dt_util.now().isoformat(), _today_str())
-        await history.set_snooze_until(self.entity_id, None)
+        history: HistoryManager | None = self.hass.data.get(DOMAIN, {}).get("history")
+        if history:
+            await history.set_last_state(self.entity_id, STATE_PENDING, dt_util.now().isoformat(), _today_str())
+            await history.set_snooze_until(self.entity_id, None)
 
         # Fire event for automations
         if old_state != STATE_PENDING:
@@ -404,9 +408,6 @@ class MedicationSensor(SensorEntity):
                 "new_state": STATE_PENDING,
                 "timestamp": dt_util.now().isoformat(),
             })
-
-        # Reschedule midnight for next day
-        self._schedule_midnight_reset()
 
         _LOGGER.debug("%s: midnight reset to Pending", self.entity_id)
 
@@ -459,7 +460,10 @@ class MedicationSensor(SensorEntity):
         self._cancel_nags()
 
         # Persist state for restart recovery
-        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        history: HistoryManager | None = self.hass.data.get(DOMAIN, {}).get("history")
+        if not history:
+            _LOGGER.debug("%s: history manager unavailable during mark", self.entity_id)
+            return
         await history.set_last_state(self.entity_id, status, now_iso, _today_str())
 
         # Clear snooze on any explicit action
@@ -485,7 +489,10 @@ class MedicationSensor(SensorEntity):
         when = dt_util.now() + timedelta(minutes=minutes)
 
         # Persist snooze for restart recovery
-        history: HistoryManager = self.hass.data[DOMAIN]["history"]
+        history: HistoryManager | None = self.hass.data.get(DOMAIN, {}).get("history")
+        if not history:
+            _LOGGER.debug("%s: history manager unavailable during snooze", self.entity_id)
+            return
         await history.set_snooze_until(self.entity_id, when.isoformat())
 
         def _cb(_):
@@ -550,8 +557,9 @@ class MedicationSensor(SensorEntity):
             self._refill_threshold = max(0, int(refill_threshold))
             changed = True
         if refill_total is not None:
-            hist: HistoryManager = self.hass.data[DOMAIN]["history"]
-            self.hass.async_create_task(hist.adjust_refill(self.entity_id, remaining=max(0, int(refill_total))))
+            hist: HistoryManager | None = self.hass.data.get(DOMAIN, {}).get("history")
+            if hist:
+                self.hass.async_create_task(hist.adjust_refill(self.entity_id, remaining=max(0, int(refill_total))))
             changed = True
         if changed:
             self.async_write_ha_state()
@@ -586,7 +594,9 @@ class MedicationSensor(SensorEntity):
         self._nag_unsub = async_call_later(self.hass, self._nag_interval * 60, _nag_cb)
 
     async def _handle_refill_after_taken(self) -> None:
-        hist: HistoryManager = self.hass.data[DOMAIN]["history"]
+        hist: HistoryManager | None = self.hass.data.get(DOMAIN, {}).get("history")
+        if not hist:
+            return
         info = hist.get_refill(self.entity_id)
         if not info:
             return
