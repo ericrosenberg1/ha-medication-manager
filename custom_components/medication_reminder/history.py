@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import timedelta
-from typing import Any, Dict, List
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -21,17 +21,17 @@ class HistoryManager:
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
         self._store: Store = Store(hass, HISTORY_STORE_VERSION, HISTORY_STORE_KEY)
-        self._events: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        self._refill: Dict[str, Dict[str, Any]] = {}
+        self._events: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self._refill: dict[str, dict[str, Any]] = {}
         # Tracks the last date each time slot fired per entity (for restart recovery)
         # Format: {entity_id: {"08:00": "2026-04-04", "20:00": "2026-04-04"}}
-        self._last_reminded: Dict[str, Dict[str, str]] = {}
+        self._last_reminded: dict[str, dict[str, str]] = {}
         # Tracks active snooze expiry per entity (for restart recovery)
         # Format: {entity_id: "2026-04-04T08:15:00+00:00"}
-        self._snooze_until: Dict[str, str] = {}
+        self._snooze_until: dict[str, str] = {}
         # Tracks last state per entity (for restart recovery)
         # Format: {entity_id: {"state": "Taken", "timestamp": "...", "date": "2026-04-04"}}
-        self._last_state: Dict[str, Dict[str, str]] = {}
+        self._last_state: dict[str, dict[str, str]] = {}
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
@@ -46,7 +46,7 @@ class HistoryManager:
             if isinstance(lst, list):
                 self._events[eid] = [e for e in lst if isinstance(e, dict) and "status" in e and "timestamp" in e]
         if isinstance(refill, dict):
-            out: Dict[str, Dict[str, Any]] = {}
+            out: dict[str, dict[str, Any]] = {}
             for eid, info in refill.items():
                 if not isinstance(info, dict):
                     continue
@@ -84,7 +84,7 @@ class HistoryManager:
         lst.append({"status": status, "timestamp": timestamp_iso})
         # prune to last 60 days or last 500 events
         cutoff = dt_util.now() - timedelta(days=60)
-        pruned: List[Dict[str, Any]] = []
+        pruned: list[dict[str, Any]] = []
         for e in lst[-500:]:
             ts = dt_util.parse_datetime(e.get("timestamp"))
             if ts is None:
@@ -95,10 +95,10 @@ class HistoryManager:
         await self._async_save()
         async_dispatcher_send(self.hass, SIGNAL_HISTORY_UPDATED, entity_id)
 
-    def recent(self, entity_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def recent(self, entity_id: str, limit: int = 20) -> list[dict[str, Any]]:
         return list(self._events.get(entity_id, []))[-limit:]
 
-    def counts_since(self, entity_id: str, since) -> Dict[str, int]:
+    def counts_since(self, entity_id: str, since) -> dict[str, int]:
         taken = skipped = snoozed = 0
         for e in self._events.get(entity_id, []):
             ts = dt_util.parse_datetime(e.get("timestamp"))
@@ -113,7 +113,7 @@ class HistoryManager:
                 snoozed += 1
         return {"taken": taken, "skipped": skipped, "snoozed": snoozed}
 
-    def counts_between(self, entity_id: str, start, end) -> Dict[str, int]:
+    def counts_between(self, entity_id: str, start, end) -> dict[str, int]:
         taken = skipped = snoozed = 0
         for e in self._events.get(entity_id, []):
             ts = dt_util.parse_datetime(e.get("timestamp"))
@@ -128,7 +128,7 @@ class HistoryManager:
                 snoozed += 1
         return {"taken": taken, "skipped": skipped, "snoozed": snoozed}
 
-    def get_refill(self, entity_id: str) -> Dict[str, Any] | None:
+    def get_refill(self, entity_id: str) -> dict[str, Any] | None:
         return self._refill.get(entity_id)
 
     async def set_refill(self, entity_id: str, remaining: int, threshold: int, units_per_intake: int, alerted: bool = False) -> None:
@@ -151,7 +151,7 @@ class HistoryManager:
         self._refill[entity_id] = new
         await self._async_save()
 
-    async def decrement_refill(self, entity_id: str, amount: int) -> Dict[str, Any] | None:
+    async def decrement_refill(self, entity_id: str, amount: int) -> dict[str, Any] | None:
         info = self._refill.get(entity_id)
         if not info:
             return None
@@ -169,7 +169,7 @@ class HistoryManager:
         slots[time_slot] = date_str
         await self._async_save()
 
-    def get_last_reminded(self, entity_id: str) -> Dict[str, str]:
+    def get_last_reminded(self, entity_id: str) -> dict[str, str]:
         """Return {time_slot: date_str} for an entity."""
         return dict(self._last_reminded.get(entity_id, {}))
 
@@ -194,6 +194,6 @@ class HistoryManager:
         }
         await self._async_save()
 
-    def get_last_state(self, entity_id: str) -> Dict[str, str] | None:
+    def get_last_state(self, entity_id: str) -> dict[str, str] | None:
         """Return persisted state info or None."""
         return self._last_state.get(entity_id)
