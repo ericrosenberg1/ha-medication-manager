@@ -51,6 +51,10 @@ class MedicationPlannerCard extends HTMLElement {
       table.style.width = '100%';
       table.style.borderCollapse = 'collapse';
       table.style.minWidth = '500px';
+      const caption = document.createElement('caption');
+      caption.textContent = `${name} 7-day planner`;
+      caption.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)';
+      table.appendChild(caption);
 
       const thead = document.createElement('thead');
       const trh = document.createElement('tr');

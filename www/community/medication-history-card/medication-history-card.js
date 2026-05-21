@@ -49,6 +49,10 @@ class MedicationHistoryCard extends HTMLElement {
       const table = document.createElement('table');
       table.style.width = '100%';
       table.style.borderCollapse = 'collapse';
+      const caption = document.createElement('caption');
+      caption.textContent = `${name} medication history`;
+      caption.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)';
+      table.appendChild(caption);
       const thead = document.createElement('thead');
       const trh = document.createElement('tr');
       for (const h of ['When', 'Status']) {

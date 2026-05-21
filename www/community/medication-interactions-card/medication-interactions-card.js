@@ -181,6 +181,7 @@ class MedicationInteractionsCard extends HTMLElement {
       const icon = document.createElement('span');
       icon.className = 'icon';
       icon.textContent = '\u2713';
+      icon.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
       text.textContent = 'No known interactions';
       ok.appendChild(icon);
@@ -204,6 +205,7 @@ class MedicationInteractionsCard extends HTMLElement {
         const warnIcon = document.createElement('span');
         warnIcon.className = 'warning-icon';
         warnIcon.textContent = '\u26A0';
+        warnIcon.setAttribute('aria-hidden', 'true');
 
         const drugB = document.createElement('span');
         drugB.className = 'drug-name';
