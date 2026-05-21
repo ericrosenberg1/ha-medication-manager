@@ -106,6 +106,8 @@ class MedicationHistoryCard extends HTMLElement {
     this.appendChild(card);
   }
 
+  getGridOptions() { return { columns: 12, min_columns: 6, rows: 3, min_rows: 2 }; }
+
   getCardSize() {
     return (this.config?.entities?.length || 1) * 2;
   }
