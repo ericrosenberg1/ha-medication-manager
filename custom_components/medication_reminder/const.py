@@ -3,10 +3,6 @@
 # Integration domain must match the folder name under custom_components
 DOMAIN = "medication_reminder"
 
-# Storage constants (kept for potential future use)
-STORAGE_KEY = "medication_reminder"
-STORAGE_VERSION = 1
-
 # Defaults
 DEFAULT_SNOOZE_MINUTES = 5
 MIN_SNOOZE_MINUTES = 1

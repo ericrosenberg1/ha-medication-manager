@@ -1,97 +1,108 @@
 mark_taken:
-  description: Mark a medication as taken
+  name: Mark Taken
+  description: Record that a medication dose was taken.
   target:
     entity:
       domain: sensor
-  fields:
-    entity_id:
-      description: Medication entity
-      example: sensor.medication_aspirin
+      integration: medication_reminder
+  fields: {}
 
 mark_skipped:
-  description: Mark a medication as skipped
+  name: Mark Skipped
+  description: Record that a medication dose was skipped.
   target:
     entity:
       domain: sensor
-  fields:
-    entity_id:
-      description: Medication entity
-      example: sensor.medication_aspirin
+      integration: medication_reminder
+  fields: {}
 
 mark_snoozed:
-  description: Snooze a medication reminder
+  name: Snooze Reminder
+  description: Snooze the medication reminder for a set number of minutes.
   target:
     entity:
       domain: sensor
+      integration: medication_reminder
   fields:
-    entity_id:
-      description: Medication entity
-      example: sensor.medication_aspirin
     minutes:
-      description: Minutes to snooze (overrides default)
-      example: 10
+      name: Minutes
+      description: How many minutes to snooze. Defaults to the medication's configured snooze duration (1–1440).
+      required: false
+      example: 15
       selector:
         number:
           min: 1
-          max: 120
+          max: 1440
           unit_of_measurement: min
-          mode: box
-          step: 1
 
 mark_pending:
-  description: Reset a medication state to Pending
+  name: Reset to Pending
+  description: Reset a medication's state back to Pending.
   target:
     entity:
       domain: sensor
-  fields:
-    entity_id:
-      description: Medication entity
-      example: sensor.medication_aspirin
+      integration: medication_reminder
+  fields: {}
 
 refill_set:
-  description: Set refill remaining/threshold/units for a medication
+  name: Set Refill Count
+  description: Set or update the refill tracking values for a medication.
   target:
     entity:
       domain: sensor
+      integration: medication_reminder
   fields:
-    entity_id:
-      description: Medication entity
-      example: sensor.medication_aspirin
     remaining:
-      description: Remaining units in your supply (optional)
-      example: 60
+      name: Remaining Doses
+      description: Number of doses currently remaining.
+      required: false
+      example: 90
+      selector:
+        number:
+          min: 0
+          max: 9999
     threshold:
-      description: Threshold to alert for refill (optional)
-      example: 10
+      name: Low Supply Threshold
+      description: Alert when remaining doses fall at or below this number.
+      required: false
+      example: 14
+      selector:
+        number:
+          min: 0
+          max: 9999
     units_per_intake:
-      description: Units consumed per dose (optional)
+      name: Units Per Dose
+      description: How many units (pills/ml) are consumed per dose.
+      required: false
       example: 1
+      selector:
+        number:
+          min: 1
+          max: 100
 
 refill_add:
-  description: Add units to remaining supply (e.g., after refill)
+  name: Add Refill
+  description: Add doses to the refill count (e.g. after a pharmacy pickup).
   target:
     entity:
       domain: sensor
+      integration: medication_reminder
   fields:
-    entity_id:
-      description: Medication entity
-      example: sensor.medication_aspirin
     amount:
-      description: Units to add
-      example: 30
+      name: Amount
+      description: Number of doses to add.
+      required: true
+      example: 90
+      selector:
+        number:
+          min: 1
+          max: 9999
 
 refill_acknowledge:
-  description: Acknowledge refill alert (clears alert flag)
+  name: Acknowledge Refill Alert
+  description: Clear the low-supply alert flag so notifications stop until the next threshold crossing.
   target:
     entity:
       domain: sensor
-  fields:
-    entity_id:
-      description: Medication entity
-      example: sensor.medication_aspirin
-
-check_interactions:
-  description: Check for drug interactions between configured medications
-  target:
-    entity:
-      domain: sensor
+      integration: medication_reminder
+  fields: {}

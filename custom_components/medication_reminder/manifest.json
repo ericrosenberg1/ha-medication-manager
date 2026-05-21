@@ -1,7 +1,7 @@
 {
   "domain": "medication_reminder",
   "name": "Medication Reminder",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "documentation": "https://github.com/ericrosenberg1/ha-medication-manager",
   "requirements": [
     "sentry-sdk>=2.0"

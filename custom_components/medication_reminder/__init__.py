@@ -11,7 +11,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.service import async_extract_entity_ids
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import config_validation as cv
-from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -80,7 +79,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if not entity:
                     raise HomeAssistantError(f"Medication entity not found: {eid}")
                 await entity.async_mark(STATE_TAKEN)
-                await hass.data[DOMAIN]["history"].record(eid, STATE_TAKEN, dt_util.now().isoformat())
 
         async def mark_skipped(call: ServiceCall):
             entity_ids = async_extract_entity_ids(hass, call)
@@ -91,7 +89,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if not entity:
                     raise HomeAssistantError(f"Medication entity not found: {eid}")
                 await entity.async_mark(STATE_SKIPPED)
-                await hass.data[DOMAIN]["history"].record(eid, STATE_SKIPPED, dt_util.now().isoformat())
 
         async def mark_snoozed(call: ServiceCall):
             entity_ids = async_extract_entity_ids(hass, call)
@@ -108,7 +105,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     minutes = DEFAULT_SNOOZE_MINUTES
                 minutes = max(1, min(1440, minutes))
                 await entity.async_snooze(minutes)
-                await hass.data[DOMAIN]["history"].record(eid, "Snoozed", dt_util.now().isoformat())
 
         async def mark_pending(call: ServiceCall):
             entity_ids = async_extract_entity_ids(hass, call)
@@ -191,10 +187,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 return
             if action in ("MED_TAKEN", "TAKEN"):
                 await entity.async_mark(STATE_TAKEN)
-                await hass.data[DOMAIN]["history"].record(entity_id, STATE_TAKEN, dt_util.now().isoformat())
             elif action in ("MED_SKIP", "SKIP", "SKIPPED", "MED_DISMISS", "DISMISS"):
                 await entity.async_mark(STATE_SKIPPED)
-                await hass.data[DOMAIN]["history"].record(entity_id, STATE_SKIPPED, dt_util.now().isoformat())
             elif action in ("MED_SNOOZE", "SNOOZE", "SNOOZED"):
                 minutes = ad.get("minutes")
                 try:
@@ -203,11 +197,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     minutes = DEFAULT_SNOOZE_MINUTES
                 minutes = max(1, min(1440, minutes))
                 await entity.async_snooze(minutes)
-                await hass.data[DOMAIN]["history"].record(entity_id, "Snoozed", dt_util.now().isoformat())
 
         store["mobile_unsub"] = hass.bus.async_listen("mobile_app_notification_action", _handle_mobile_action)
         _LOGGER.debug("%s: listening for mobile_app_notification_action", DOMAIN)
 
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entry to a newer version."""
+    _LOGGER.info("Migrating %s entry from version %s", DOMAIN, entry.version)
+    # No migrations needed yet — placeholder for future schema changes.
     return True
 
 

@@ -39,14 +39,12 @@ class InteractionChecker:
     async def _fetch_interaction_text(self, rxcui: str) -> str | None:
         """Fetch the drug_interactions text for a single rxcui from OpenFDA."""
         session = async_get_clientsession(self._hass)
-        url = f'{OPENFDA_LABEL_URL}?search=openfda.rxcui:"{rxcui}"&limit=1'
+        params = {"search": f'openfda.rxcui:"{rxcui}"', "limit": "1"}
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status != 200:
-                    _LOGGER.debug(
-                        "OpenFDA returned status %s for rxcui %s", resp.status, rxcui
-                    )
-                    return None
+            async with session.get(
+                OPENFDA_LABEL_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
+                resp.raise_for_status()
                 data = await resp.json()
                 results = data.get("results")
                 if not results:
@@ -55,7 +53,7 @@ class InteractionChecker:
                 if isinstance(interactions, list) and interactions:
                     return interactions[0]
                 return None
-        except Exception:
+        except aiohttp.ClientError:
             _LOGGER.warning(
                 "Failed to fetch interaction data for rxcui %s", rxcui, exc_info=True
             )

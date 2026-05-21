@@ -1,42 +1,101 @@
 {
-  "title": "Medication Reminder",
   "config": {
     "step": {
       "user": {
         "title": "Add Medication",
-        "description": "Enter the medication name and schedule. Drug information is automatically looked up from the FDA database when available.\n\n{disclaimer}",
+        "description": "Configure a new medication reminder. {disclaimer}",
         "data": {
           "name": "Medication Name",
-          "dose": "Dose (e.g., 500mg)",
-          "times": "Reminder Times (HH:MM, comma-separated)"
+          "dose": "Dose (optional)",
+          "times": "Reminder Times"
+        },
+        "data_description": {
+          "name": "The medication name. Used to look up FDA drug data.",
+          "dose": "e.g. 10mg, 2 tablets",
+          "times": "Comma-separated 24-hour times, e.g. 08:00, 20:00"
         }
       }
     },
     "error": {
-      "invalid_times": "Invalid time format. Use HH:MM,HH:MM",
-      "required": "This field is required"
+      "required": "This field is required.",
+      "invalid_times": "Times must be in HH:MM format, comma-separated."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Edit Medication",
-        "description": "Update fields below.",
+        "title": "Medication Options",
         "data": {
           "dose": "Dose",
-          "times": "Times (HH:MM, comma-separated)",
-          "snooze_minutes": "Default snooze (minutes)",
-          "notify_services": "Notify services (comma-separated)",
-          "nag_interval_minutes": "Nag interval (minutes)",
-          "nag_max": "Max nags per reminder",
-          "refill_total": "Refill: remaining units",
-          "refill_threshold": "Refill alert threshold",
-          "dose_units_per_intake": "Units per dose"
+          "times": "Reminder Times",
+          "snooze_minutes": "Snooze Duration (minutes)",
+          "notify_services": "Notification Services",
+          "nag_interval_minutes": "Nag Interval (minutes)",
+          "nag_max": "Max Nag Count",
+          "refill_total": "Initial Refill Count",
+          "refill_threshold": "Refill Alert Threshold",
+          "dose_units_per_intake": "Units Per Dose"
         }
       }
     },
     "error": {
-      "invalid_times": "Invalid time format. Use HH:MM,HH:MM"
+      "invalid_times": "Times must be in HH:MM format, comma-separated."
+    }
+  },
+  "services": {
+    "mark_taken": {
+      "name": "Mark Taken",
+      "description": "Record that a medication dose was taken."
+    },
+    "mark_skipped": {
+      "name": "Mark Skipped",
+      "description": "Record that a medication dose was skipped."
+    },
+    "mark_snoozed": {
+      "name": "Snooze Reminder",
+      "description": "Snooze the medication reminder for a set number of minutes.",
+      "fields": {
+        "minutes": {
+          "name": "Minutes",
+          "description": "How many minutes to snooze (1–1440). Defaults to configured snooze duration."
+        }
+      }
+    },
+    "mark_pending": {
+      "name": "Reset to Pending",
+      "description": "Reset a medication's state back to Pending."
+    },
+    "refill_set": {
+      "name": "Set Refill Count",
+      "description": "Set or update the refill tracking values for a medication.",
+      "fields": {
+        "remaining": {
+          "name": "Remaining Doses",
+          "description": "Number of doses currently remaining."
+        },
+        "threshold": {
+          "name": "Low Supply Threshold",
+          "description": "Alert when remaining doses fall at or below this number."
+        },
+        "units_per_intake": {
+          "name": "Units Per Dose",
+          "description": "How many units are consumed per dose."
+        }
+      }
+    },
+    "refill_add": {
+      "name": "Add Refill",
+      "description": "Add doses to the refill count after a pharmacy pickup.",
+      "fields": {
+        "amount": {
+          "name": "Amount",
+          "description": "Number of doses to add."
+        }
+      }
+    },
+    "refill_acknowledge": {
+      "name": "Acknowledge Refill Alert",
+      "description": "Clear the low-supply alert flag."
     }
   }
 }

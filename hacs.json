@@ -1,6 +1,5 @@
 {
   "name": "Medication Reminder",
-  "content_in_root": false,
   "render_readme": true,
-  "domains": ["medication_reminder"]
+  "homeassistant": "2024.1.0"
 }

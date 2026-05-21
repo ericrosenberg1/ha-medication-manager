@@ -7,11 +7,11 @@ from typing import Any
 
 import aiohttp
 
+from .const import RXTERMS_API_URL, OPENFDA_LABEL_URL
+
 _LOGGER = logging.getLogger(__name__)
 
-RXTERMS_URL = "https://clinicaltables.nlm.nih.gov/api/rxterms/v3/search"
-OPENFDA_LABEL_URL = "https://api.fda.gov/drug/label.json"
-REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
+_API_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 
 async def search_medications(
@@ -36,7 +36,7 @@ async def search_medications(
 
     try:
         async with session.get(
-            RXTERMS_URL, params=params, timeout=REQUEST_TIMEOUT
+            RXTERMS_API_URL, params=params, timeout=_API_TIMEOUT
         ) as resp:
             resp.raise_for_status()
             data = await resp.json(content_type=None)
@@ -89,7 +89,7 @@ async def get_drug_details(
 
     try:
         async with session.get(
-            OPENFDA_LABEL_URL, params=params, timeout=REQUEST_TIMEOUT
+            OPENFDA_LABEL_URL, params=params, timeout=_API_TIMEOUT
         ) as resp:
             resp.raise_for_status()
             data = await resp.json(content_type=None)

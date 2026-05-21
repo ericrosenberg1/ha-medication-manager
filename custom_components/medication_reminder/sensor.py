@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Callable, Optional
+from typing import Callable
 import logging
 import re
 
@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_time, async_call_later
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
-from homeassistant.helpers.entity import async_generate_entity_id
+from homeassistant.helpers.entity import async_generate_entity_id, DeviceInfo
 
 from .const import (
     DOMAIN,
@@ -53,7 +53,7 @@ async def async_setup_entry(
     notify_services_raw = (entry.options.get("notify_services") or "").strip()
     raw_services = [s.strip() for s in notify_services_raw.split(",") if s.strip()]
 
-    def _sanitize_services(services: List[str]) -> List[str]:
+    def _sanitize_services(services: list[str]) -> list[str]:
         """Allow 'notify.xxx' or 'xxx'; return normalized unique list of 'xxx'."""
         out: list[str] = []
         seen: set[str] = set()
@@ -162,28 +162,28 @@ class MedicationSensor(SensorEntity):
         self._dose = dose
         self._times = times
         self._state = STATE_PENDING
-        self._last_action: Optional[_LastAction] = None
+        self._last_action: _LastAction | None = None
         self._unsubs: list[Callable[[], None]] = []
         self._snooze_minutes = snooze_minutes
         self._notify_services = notify_services
         self._nag_interval = max(0, int(nag_interval))
         self._nag_max = max(0, int(nag_max))
         self._nag_remaining = 0
-        self._nag_unsub: Optional[Callable[[], None]] = None
+        self._nag_unsub: Callable[[], None] | None = None
         self._units_per_intake = max(1, int(units_per_intake))
         self._refill_threshold = max(0, int(refill_threshold))
         self._init_refill_total = max(0, int(refill_total))
         self._entry_id = entry_id
-        self._midnight_unsub: Optional[Callable[[], None]] = None
+        self._midnight_unsub: Callable[[], None] | None = None
 
         slug = slugify(name)
         self._attr_name = name
         self._attr_unique_id = f"med_{slug}"
         self.entity_id = async_generate_entity_id("sensor.{}", f"medication_{slug}", hass=hass)
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, "medication_reminder")},
-            "name": "Medication Reminder",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "medication_reminder")},
+            name="Medication Reminder",
+        )
 
     @property
     def native_value(self):
@@ -463,6 +463,9 @@ class MedicationSensor(SensorEntity):
         if status.lower().startswith("take"):
             await self._handle_refill_after_taken()
 
+        # Record to history (so callers don't need to duplicate this)
+        await history.record(self.entity_id, status, now_iso)
+
         # Fire HA event for automations
         if old_state != status:
             self.hass.bus.async_fire(EVENT_STATE_CHANGED, {
@@ -495,6 +498,9 @@ class MedicationSensor(SensorEntity):
         # Persist state
         await history.set_last_state(self.entity_id, STATE_SNOOZED, now_iso, _today_str())
 
+        # Record to history (so callers don't need to duplicate this)
+        await history.record(self.entity_id, "Snoozed", now_iso)
+
         # Fire event
         if old_state != STATE_SNOOZED:
             self.hass.bus.async_fire(EVENT_STATE_CHANGED, {
@@ -509,7 +515,7 @@ class MedicationSensor(SensorEntity):
         return self._snooze_minutes
 
     @callback
-    def update_config(self, *, dose: Optional[str] = None, times: Optional[list[str]] = None, snooze_minutes: Optional[int] = None, notify_services: Optional[List[str]] = None, nag_interval: Optional[int] = None, nag_max: Optional[int] = None, units_per_intake: Optional[int] = None, refill_total: Optional[int] = None, refill_threshold: Optional[int] = None) -> None:
+    def update_config(self, *, dose: str | None = None, times: list[str] | None = None, snooze_minutes: int | None = None, notify_services: list[str] | None = None, nag_interval: int | None = None, nag_max: int | None = None, units_per_intake: int | None = None, refill_total: int | None = None, refill_threshold: int | None = None) -> None:
         changed = False
         if dose is not None and dose != self._dose:
             self._dose = dose
@@ -601,22 +607,22 @@ class MedicationAdherenceSensor(SensorEntity):
     _attr_native_unit_of_measurement = "%"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, hass: HomeAssistant, name: str, times: list[str], history: HistoryManager, source_entity_id: Optional[str], slug: str):
+    def __init__(self, hass: HomeAssistant, name: str, times: list[str], history: HistoryManager, source_entity_id: str | None, slug: str):
         self.hass = hass
         self._name = name
         self._times = times
         self._history = history
         self._source_entity_id = source_entity_id
         self._slug = slug
-        self._state: Optional[float] = None
+        self._state: float | None = None
         self._attr_name = f"{name} Adherence"
         self._attr_unique_id = f"med_{slug}_adherence"
         self.entity_id = async_generate_entity_id("sensor.{}", f"medication_{slug}_adherence", hass=hass)
         self._unsub_dispatcher = None
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, "medication_reminder")},
-            "name": "Medication Reminder",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "medication_reminder")},
+            name="Medication Reminder",
+        )
 
     def set_source_entity_id(self, entity_id: str) -> None:
         self._source_entity_id = entity_id
@@ -676,22 +682,22 @@ class MedicationStatsSensor(SensorEntity):
 
     _attr_icon = "mdi:table"
 
-    def __init__(self, hass: HomeAssistant, name: str, times: list[str], history: HistoryManager, source_entity_id: Optional[str], slug: str):
+    def __init__(self, hass: HomeAssistant, name: str, times: list[str], history: HistoryManager, source_entity_id: str | None, slug: str):
         self.hass = hass
         self._name = name
         self._times = times
         self._history = history
         self._source_entity_id = source_entity_id
         self._slug = slug
-        self._state: Optional[int] = None
+        self._state: int | None = None
         self._attr_name = f"{name} Stats"
         self._attr_unique_id = f"med_{slug}_stats"
         self.entity_id = async_generate_entity_id("sensor.{}", f"medication_{slug}_stats", hass=hass)
         self._unsub_dispatcher = None
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, "medication_reminder")},
-            "name": "Medication Reminder",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "medication_reminder")},
+            name="Medication Reminder",
+        )
 
     def set_source_entity_id(self, entity_id: str) -> None:
         self._source_entity_id = entity_id
