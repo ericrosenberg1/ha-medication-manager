@@ -5,11 +5,8 @@ import logging
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.service import async_extract_entity_ids
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
@@ -21,6 +18,7 @@ from .const import (
 from .helpers import is_valid_medication_entity_id
 from .history import HistoryManager
 from .sentry import maybe_init_sentry
+from .services import MedicationServices
 
 # Initialise Sentry on first import — no-op unless MEDREM_SENTRY_DSN is set
 # on the host HA instance AND sentry-sdk is installed. End users get no
@@ -70,103 +68,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Register domain services once
     if not store.get("services_registered"):
-        async def mark_taken(call: ServiceCall):
-            entity_ids = async_extract_entity_ids(hass, call)
-            if not entity_ids:
-                raise HomeAssistantError("No entity_id or target provided")
-            for eid in entity_ids:
-                entity = hass.data[DOMAIN]["entities"].get(eid)
-                if not entity:
-                    raise HomeAssistantError(f"Medication entity not found: {eid}")
-                await entity.async_mark(STATE_TAKEN)
-
-        async def mark_skipped(call: ServiceCall):
-            entity_ids = async_extract_entity_ids(hass, call)
-            if not entity_ids:
-                raise HomeAssistantError("No entity_id or target provided")
-            for eid in entity_ids:
-                entity = hass.data[DOMAIN]["entities"].get(eid)
-                if not entity:
-                    raise HomeAssistantError(f"Medication entity not found: {eid}")
-                await entity.async_mark(STATE_SKIPPED)
-
-        async def mark_snoozed(call: ServiceCall):
-            entity_ids = async_extract_entity_ids(hass, call)
-            if not entity_ids:
-                raise HomeAssistantError("No entity_id or target provided")
-            raw_minutes = call.data.get("minutes")
-            for eid in entity_ids:
-                entity = hass.data[DOMAIN]["entities"].get(eid)
-                if not entity:
-                    raise HomeAssistantError(f"Medication entity not found: {eid}")
-                try:
-                    minutes = int(raw_minutes) if raw_minutes is not None else int(entity.snooze_minutes)
-                except (TypeError, ValueError):
-                    minutes = DEFAULT_SNOOZE_MINUTES
-                minutes = max(1, min(1440, minutes))
-                await entity.async_snooze(minutes)
-
-        async def mark_pending(call: ServiceCall):
-            entity_ids = async_extract_entity_ids(hass, call)
-            if not entity_ids:
-                raise HomeAssistantError("No entity_id or target provided")
-            for eid in entity_ids:
-                entity = hass.data[DOMAIN]["entities"].get(eid)
-                if not entity:
-                    raise HomeAssistantError(f"Medication entity not found: {eid}")
-                await entity.async_mark("Pending")
-
-        async def refill_set(call: ServiceCall):
-            entity_ids = async_extract_entity_ids(hass, call)
-            if not entity_ids:
-                raise HomeAssistantError("No entity_id or target provided")
-            remaining = call.data.get("remaining")
-            threshold = call.data.get("threshold")
-            units = call.data.get("units_per_intake")
-            if remaining is None and threshold is None and units is None:
-                raise HomeAssistantError("Provide at least one of remaining, threshold, units_per_intake")
-            hist: HistoryManager = hass.data[DOMAIN]["history"]
-            for eid in entity_ids:
-                cur = hist.get_refill(eid) or {"remaining": 0, "threshold": 0, "units_per_intake": 1, "alerted": False}
-                await hist.set_refill(
-                    eid,
-                    remaining=int(remaining if remaining is not None else cur["remaining"]),
-                    threshold=int(threshold if threshold is not None else cur["threshold"]),
-                    units_per_intake=int(units if units is not None else cur["units_per_intake"]),
-                    alerted=bool(cur.get("alerted", False)),
-                )
-
-        async def refill_add(call: ServiceCall):
-            entity_ids = async_extract_entity_ids(hass, call)
-            if not entity_ids:
-                raise HomeAssistantError("No entity_id or target provided")
-            amount = call.data.get("amount")
-            if amount is None:
-                raise HomeAssistantError("amount is required")
-            amount = int(amount)
-            hist: HistoryManager = hass.data[DOMAIN]["history"]
-            for eid in entity_ids:
-                cur = hist.get_refill(eid)
-                if not cur:
-                    continue
-                new_remaining = max(0, int(cur.get("remaining", 0)) + amount)
-                await hist.adjust_refill(eid, remaining=new_remaining, alerted=False)
-
-        async def refill_acknowledge(call: ServiceCall):
-            entity_ids = async_extract_entity_ids(hass, call)
-            if not entity_ids:
-                raise HomeAssistantError("No entity_id or target provided")
-            hist: HistoryManager = hass.data[DOMAIN]["history"]
-            for eid in entity_ids:
-                await hist.adjust_refill(eid, alerted=False)
-
-        hass.services.async_register(DOMAIN, "mark_taken", mark_taken, schema=MARK_SCHEMA)
-        hass.services.async_register(DOMAIN, "mark_skipped", mark_skipped, schema=MARK_SCHEMA)
-        hass.services.async_register(DOMAIN, "mark_snoozed", mark_snoozed, schema=SNOOZE_SCHEMA)
-        hass.services.async_register(DOMAIN, "mark_pending", mark_pending, schema=MARK_SCHEMA)
-        hass.services.async_register(DOMAIN, "refill_set", refill_set, schema=REFILL_SET_SCHEMA)
-        hass.services.async_register(DOMAIN, "refill_add", refill_add, schema=REFILL_ADD_SCHEMA)
-        hass.services.async_register(DOMAIN, "refill_acknowledge", refill_acknowledge, schema=REFILL_ACK_SCHEMA)
+        _svc = MedicationServices(hass)
+        hass.services.async_register(DOMAIN, "mark_taken", _svc.async_mark_taken, schema=MARK_SCHEMA)
+        hass.services.async_register(DOMAIN, "mark_skipped", _svc.async_mark_skipped, schema=MARK_SCHEMA)
+        hass.services.async_register(DOMAIN, "mark_snoozed", _svc.async_mark_snoozed, schema=SNOOZE_SCHEMA)
+        hass.services.async_register(DOMAIN, "mark_pending", _svc.async_mark_pending, schema=MARK_SCHEMA)
+        hass.services.async_register(DOMAIN, "refill_set", _svc.async_refill_set, schema=REFILL_SET_SCHEMA)
+        hass.services.async_register(DOMAIN, "refill_add", _svc.async_refill_add, schema=REFILL_ADD_SCHEMA)
+        hass.services.async_register(DOMAIN, "refill_acknowledge", _svc.async_refill_acknowledge, schema=REFILL_ACK_SCHEMA)
         store["services_registered"] = True
         _LOGGER.debug("%s: services registered", DOMAIN)
 

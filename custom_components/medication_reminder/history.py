@@ -1,6 +1,7 @@
 """Adherence history manager and helpers."""
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from datetime import timedelta
 from typing import Any
@@ -32,6 +33,7 @@ class HistoryManager:
         # Tracks last state per entity (for restart recovery)
         # Format: {entity_id: {"state": "Taken", "timestamp": "...", "date": "2026-04-04"}}
         self._last_state: dict[str, dict[str, str]] = {}
+        self._pending_save: asyncio.Task | None = None
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
@@ -71,13 +73,35 @@ class HistoryManager:
             self._refill = out
 
     async def _async_save(self) -> None:
+        """Write current state to the HA store immediately."""
         await self._store.async_save({
-            "events": self._events,
+            "events": dict(self._events),
             "refill": self._refill,
             "last_reminded": self._last_reminded,
             "snooze_until": self._snooze_until,
             "last_state": self._last_state,
         })
+
+    def _schedule_save(self, delay: float = 30.0) -> None:
+        """Schedule a debounced save. Cancels any pending save and schedules a new one."""
+        if self._pending_save is not None and not self._pending_save.done():
+            self._pending_save.cancel()
+
+        async def _delayed():
+            try:
+                await asyncio.sleep(delay)
+                await self._async_save()
+            except asyncio.CancelledError:
+                pass
+
+        self._pending_save = self.hass.async_create_task(_delayed())
+
+    async def async_flush(self) -> None:
+        """Cancel pending debounced save and write immediately."""
+        if self._pending_save is not None and not self._pending_save.done():
+            self._pending_save.cancel()
+            self._pending_save = None
+        await self._async_save()
 
     async def record(self, entity_id: str, status: str, timestamp_iso: str) -> None:
         lst = self._events[entity_id]
@@ -92,7 +116,7 @@ class HistoryManager:
             if ts >= cutoff:
                 pruned.append(e)
         self._events[entity_id] = pruned
-        await self._async_save()
+        self._schedule_save()  # debounced — writes after 30s idle
         async_dispatcher_send(self.hass, SIGNAL_HISTORY_UPDATED, entity_id)
 
     def recent(self, entity_id: str, limit: int = 20) -> list[dict[str, Any]]:
