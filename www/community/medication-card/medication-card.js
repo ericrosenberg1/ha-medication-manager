@@ -113,7 +113,9 @@ class MedicationCard extends HTMLElement {
       .action-btn {
         border: none;
         border-radius: 8px;
-        padding: 6px 12px;
+        padding: 10px 14px;
+        min-height: 44px;
+        min-width: 44px;
         font-size: 0.8rem;
         font-weight: 500;
         cursor: pointer;
@@ -146,6 +148,13 @@ class MedicationCard extends HTMLElement {
       }
     `;
     root.appendChild(style);
+
+    const liveRegion = document.createElement('div');
+    liveRegion.setAttribute('aria-live', 'polite');
+    liveRegion.setAttribute('aria-atomic', 'true');
+    liveRegion.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;';
+    root.appendChild(liveRegion);
+    this._liveRegion = liveRegion;
 
     const card = document.createElement('ha-card');
     card.header = this.config.title || 'Medications';
@@ -229,12 +238,14 @@ class MedicationCard extends HTMLElement {
         const b = document.createElement('button');
         b.className = `action-btn ${cls}`;
         b.textContent = label;
+        b.setAttribute('aria-label', `${label} ${name}`);
         b.disabled = disabled;
         if (!disabled) {
           b.addEventListener('click', () => {
             b.disabled = true;
             b.textContent = '...';
             this._action(entity, service);
+            if (liveRegion) liveRegion.textContent = `${name} marked as ${label.toLowerCase()}`;
             // Re-enable after state update (fallback timeout)
             setTimeout(() => { b.disabled = false; b.textContent = label; }, 3000);
           });
@@ -254,7 +265,7 @@ class MedicationCard extends HTMLElement {
     if (!hasEntities) {
       const msg = document.createElement('div');
       msg.className = 'empty-msg';
-      msg.textContent = 'No medication entities found. Check your configuration.';
+      msg.textContent = 'No medications configured. Add one in Settings → Devices & Services → Medication Reminder.';
       list.appendChild(msg);
     }
 

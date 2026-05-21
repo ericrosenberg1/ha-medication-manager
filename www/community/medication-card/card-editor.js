@@ -74,12 +74,12 @@ class MedicationCardEditor extends HTMLElement {
           }
         </style>
         <div class="editor-row">
-          <label>Title</label>
-          <input class="title-input" type="text" value="${this._config.title || ''}" placeholder="Medications">
+          <label for="med-card-title">Title</label>
+          <input class="title-input" id="med-card-title" type="text" value="${this._config.title || ''}" placeholder="Medications">
 
-          <label>Entities</label>
+          <label id="med-card-entities-label">Entities</label>
           <div class="hint">Add sensor.medication_* entities</div>
-          <div class="entity-list" id="entity-list"></div>
+          <div class="entity-list" id="entity-list" aria-labelledby="med-card-entities-label"></div>
           <button class="add-btn" id="add-btn">+ Add Entity</button>
         </div>
       `;
@@ -112,6 +112,8 @@ class MedicationCardEditor extends HTMLElement {
 
       const input = document.createElement('input');
       input.type = 'text';
+      const inputId = `med-entity-${idx}`;
+      input.id = inputId;
       input.value = entity;
       input.placeholder = 'sensor.medication_aspirin';
       input.addEventListener('input', (e) => {
@@ -119,16 +121,23 @@ class MedicationCardEditor extends HTMLElement {
         this._fireChanged();
       });
 
+      const label = document.createElement('label');
+      label.textContent = `Entity ${idx + 1}`;
+      label.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)';
+      label.setAttribute('for', inputId);
+      row.appendChild(label);
+      row.appendChild(input);
+
       const removeBtn = document.createElement('button');
       removeBtn.className = 'remove-btn';
       removeBtn.textContent = '\u00d7';
+      removeBtn.setAttribute('aria-label', `Remove entity ${entity || idx + 1}`);
       removeBtn.addEventListener('click', () => {
         this._config.entities.splice(idx, 1);
         this._renderEntities();
         this._fireChanged();
       });
 
-      row.appendChild(input);
       row.appendChild(removeBtn);
       list.appendChild(row);
     });
