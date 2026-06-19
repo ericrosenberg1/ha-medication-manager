@@ -19,7 +19,7 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-        return MedicationReminderOptionsFlow(config_entry)
+        return MedicationReminderOptionsFlow()
 
     async def async_step_user(self, user_input=None):
         """Step 1: Enter medication name, dose, and times.
@@ -90,9 +90,6 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
-
     async def async_step_init(self, user_input=None):
         errors = {}
         if user_input is not None:
