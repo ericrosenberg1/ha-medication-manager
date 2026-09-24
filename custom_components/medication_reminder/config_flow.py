@@ -1,4 +1,5 @@
 """Config flow for Medication Reminder integration."""
+
 from __future__ import annotations
 
 import logging
@@ -7,9 +8,9 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN, ATTR_NAME, ATTR_DOSE, ATTR_TIMES, ATTR_RXCUI, ATTR_DRUG_INFO
-from .helpers import slugify, normalize_times, DISCLAIMER_SHORT
-from .api import search_medications, get_drug_details
+from .api import get_drug_details, search_medications
+from .const import ATTR_DOSE, ATTR_DRUG_INFO, ATTR_NAME, ATTR_RXCUI, ATTR_TIMES, DOMAIN
+from .helpers import DISCLAIMER_SHORT, normalize_times, slugify
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             try:
                 dose = (user_input.get(ATTR_DOSE) or "").strip()
-                times_raw = (user_input.get(ATTR_TIMES) or "")
+                times_raw = user_input.get(ATTR_TIMES) or ""
                 times = normalize_times(times_raw)
                 snooze = int(user_input.get("snooze_minutes", 5))
                 if snooze < 1:
@@ -149,7 +150,9 @@ class MedicationReminderOptionsFlow(config_entries.OptionsFlow):
 
         current = {
             ATTR_DOSE: self.config_entry.options.get(ATTR_DOSE, self.config_entry.data.get(ATTR_DOSE, "")),
-            ATTR_TIMES: ", ".join(self.config_entry.options.get(ATTR_TIMES, self.config_entry.data.get(ATTR_TIMES, [])) or []),
+            ATTR_TIMES: ", ".join(
+                self.config_entry.options.get(ATTR_TIMES, self.config_entry.data.get(ATTR_TIMES, [])) or []
+            ),
             "snooze_minutes": self.config_entry.options.get("snooze_minutes", 5),
             "notify_services": self.config_entry.options.get("notify_services", ""),
             "nag_interval_minutes": self.config_entry.options.get("nag_interval_minutes", 5),

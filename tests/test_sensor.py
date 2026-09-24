@@ -1,9 +1,9 @@
 """Integration tests for MedicationSensor (sensor.py)."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from homeassistant.util import dt as dt_util
 
 from custom_components.medication_reminder.const import (
@@ -14,7 +14,6 @@ from custom_components.medication_reminder.const import (
     STATE_SNOOZED,
     STATE_TAKEN,
 )
-
 
 # ---------------------------------------------------------------------------
 # Initial state

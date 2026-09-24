@@ -1,36 +1,35 @@
 """Sensor platform for Medication Reminder."""
+
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Callable
-import logging
-import re
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity import DeviceInfo, async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_point_in_time, async_call_later, async_track_time_change
+from homeassistant.helpers.event import async_call_later, async_track_point_in_time, async_track_time_change
 from homeassistant.util import dt as dt_util
-from homeassistant.helpers.entity import async_generate_entity_id, DeviceInfo
 
+from .adherence import MedicationAdherenceSensor, MedicationStatsSensor
 from .const import (
-    DOMAIN,
     ATTR_DOSE,
     ATTR_LAST_ACTION,
     ATTR_NAME,
     ATTR_TIMES,
     DEFAULT_SNOOZE_MINUTES,
+    DOMAIN,
     EVENT_STATE_CHANGED,
     STATE_PENDING,
     STATE_SNOOZED,
-    STATE_TAKEN,
-    STATE_SKIPPED,
 )
-from .helpers import slugify, parse_times
+from .helpers import parse_times, slugify
 from .history import HistoryManager
-from .adherence import MedicationAdherenceSensor, MedicationStatsSensor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,9 +39,7 @@ def _today_str() -> str:
     return dt_util.now().strftime("%Y-%m-%d")
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
-) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     name: str = entry.data.get(ATTR_NAME) or entry.title or "Medication"
     dose: str = (entry.options.get(ATTR_DOSE) or entry.data.get(ATTR_DOSE) or "").strip()
     times_raw = entry.options.get(ATTR_TIMES) or entry.data.get(ATTR_TIMES) or []
@@ -116,9 +113,7 @@ async def async_setup_entry(
     async def _options_updated(hass: HomeAssistant, updated_entry: ConfigEntry):
         new_dose = (updated_entry.options.get(ATTR_DOSE) or updated_entry.data.get(ATTR_DOSE) or "").strip()
         new_times_raw = updated_entry.options.get(ATTR_TIMES) or updated_entry.data.get(ATTR_TIMES) or []
-        new_times = (
-            parse_times(new_times_raw) if isinstance(new_times_raw, str) else list(new_times_raw)
-        )
+        new_times = parse_times(new_times_raw) if isinstance(new_times_raw, str) else list(new_times_raw)
         new_snooze = int(updated_entry.options.get("snooze_minutes", DEFAULT_SNOOZE_MINUTES))
         new_notify_raw = (updated_entry.options.get("notify_services") or "").strip()
         new_notify = [s.strip() for s in new_notify_raw.split(",") if s.strip()]
@@ -155,7 +150,21 @@ class MedicationSensor(SensorEntity):
 
     _attr_icon = "mdi:pill"
 
-    def __init__(self, hass: HomeAssistant, name: str, dose: str, times: list[str], snooze_minutes: int, notify_services: list[str], nag_interval: int, nag_max: int, refill_total: int, refill_threshold: int, units_per_intake: int, entry_id: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        name: str,
+        dose: str,
+        times: list[str],
+        snooze_minutes: int,
+        notify_services: list[str],
+        nag_interval: int,
+        nag_max: int,
+        refill_total: int,
+        refill_threshold: int,
+        units_per_intake: int,
+        entry_id: str,
+    ):
         self.hass = hass
         self._name = name
         self._dose = dose
@@ -229,7 +238,12 @@ class MedicationSensor(SensorEntity):
         if history:
             info = history.get_refill(self.entity_id)
             if info is None and (self._init_refill_total > 0 or self._refill_threshold > 0):
-                await history.set_refill(self.entity_id, remaining=self._init_refill_total, threshold=self._refill_threshold, units_per_intake=self._units_per_intake)
+                await history.set_refill(
+                    self.entity_id,
+                    remaining=self._init_refill_total,
+                    threshold=self._refill_threshold,
+                    units_per_intake=self._units_per_intake,
+                )
 
         # Restore state from persistence
         await self._restore_state()
@@ -340,7 +354,8 @@ class MedicationSensor(SensorEntity):
                     if self._state == STATE_PENDING:
                         _LOGGER.info(
                             "%s: catch-up reminder for missed slot %s",
-                            self.entity_id, t,
+                            self.entity_id,
+                            t,
                         )
                         self.hass.async_create_task(self._fire_slot(t))
                 # Schedule for tomorrow regardless
@@ -381,7 +396,9 @@ class MedicationSensor(SensorEntity):
         self._midnight_unsub = async_track_time_change(
             self.hass,
             self._midnight_reset_callback,
-            hour=0, minute=0, second=0,
+            hour=0,
+            minute=0,
+            second=0,
         )
 
     @callback
@@ -405,12 +422,15 @@ class MedicationSensor(SensorEntity):
 
         # Fire event for automations
         if old_state != STATE_PENDING:
-            self.hass.bus.async_fire(EVENT_STATE_CHANGED, {
-                "entity_id": self.entity_id,
-                "old_state": old_state,
-                "new_state": STATE_PENDING,
-                "timestamp": dt_util.now().isoformat(),
-            })
+            self.hass.bus.async_fire(
+                EVENT_STATE_CHANGED,
+                {
+                    "entity_id": self.entity_id,
+                    "old_state": old_state,
+                    "new_state": STATE_PENDING,
+                    "timestamp": dt_util.now().isoformat(),
+                },
+            )
 
         _LOGGER.debug("%s: midnight reset to Pending", self.entity_id)
 
@@ -490,12 +510,15 @@ class MedicationSensor(SensorEntity):
 
         # Fire HA event for automations
         if old_state != status:
-            self.hass.bus.async_fire(EVENT_STATE_CHANGED, {
-                "entity_id": self.entity_id,
-                "old_state": old_state,
-                "new_state": status,
-                "timestamp": now_iso,
-            })
+            self.hass.bus.async_fire(
+                EVENT_STATE_CHANGED,
+                {
+                    "entity_id": self.entity_id,
+                    "old_state": old_state,
+                    "new_state": status,
+                    "timestamp": now_iso,
+                },
+            )
 
     async def async_snooze(self, minutes: int = DEFAULT_SNOOZE_MINUTES) -> None:
         when = dt_util.now() + timedelta(minutes=minutes)
@@ -529,19 +552,34 @@ class MedicationSensor(SensorEntity):
 
         # Fire event
         if old_state != STATE_SNOOZED:
-            self.hass.bus.async_fire(EVENT_STATE_CHANGED, {
-                "entity_id": self.entity_id,
-                "old_state": old_state,
-                "new_state": STATE_SNOOZED,
-                "timestamp": now_iso,
-            })
+            self.hass.bus.async_fire(
+                EVENT_STATE_CHANGED,
+                {
+                    "entity_id": self.entity_id,
+                    "old_state": old_state,
+                    "new_state": STATE_SNOOZED,
+                    "timestamp": now_iso,
+                },
+            )
 
     @property
     def snooze_minutes(self) -> int:
         return self._snooze_minutes
 
     @callback
-    def update_config(self, *, dose: str | None = None, times: list[str] | None = None, snooze_minutes: int | None = None, notify_services: list[str] | None = None, nag_interval: int | None = None, nag_max: int | None = None, units_per_intake: int | None = None, refill_total: int | None = None, refill_threshold: int | None = None) -> None:
+    def update_config(
+        self,
+        *,
+        dose: str | None = None,
+        times: list[str] | None = None,
+        snooze_minutes: int | None = None,
+        notify_services: list[str] | None = None,
+        nag_interval: int | None = None,
+        nag_max: int | None = None,
+        units_per_intake: int | None = None,
+        refill_total: int | None = None,
+        refill_threshold: int | None = None,
+    ) -> None:
         changed = False
         if dose is not None and dose != self._dose:
             self._dose = dose
@@ -620,15 +658,16 @@ class MedicationSensor(SensorEntity):
         updated = await hist.decrement_refill(self.entity_id, self._units_per_intake)
         if not updated:
             return
-        if int(updated.get("remaining", 0)) <= int(updated.get("threshold", 0)) and not bool(updated.get("alerted", False)):
+        remaining = int(updated.get("remaining", 0))
+        threshold = int(updated.get("threshold", 0))
+        if remaining <= threshold and not bool(updated.get("alerted", False)):
             await self.hass.services.async_call(
                 "persistent_notification",
                 "create",
                 {
                     "title": f"Medication Refill: {self._name}",
-                    "message": f"{self._name}: Remaining {updated.get('remaining')} ≤ threshold {updated.get('threshold')}. Please refill.",
+                    "message": (f"{self._name}: Remaining {remaining} <= threshold {threshold}. Please refill."),
                 },
                 blocking=False,
             )
             await hist.adjust_refill(self.entity_id, alerted=True)
-
