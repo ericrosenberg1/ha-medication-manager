@@ -45,20 +45,24 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     await self.async_set_unique_id(f"med_{slug}")
                     self._abort_if_unique_id_configured()
 
-                    # Try FDA lookup for rxcui and drug info
+                    # Try FDA lookup for rxcui and drug info. Opt-in only. This sends the
+                    # medication name to NIH RxTerms and OpenFDA (see README: local-first,
+                    # no external API calls by default), so it must not run unless the user
+                    # explicitly checked the box.
                     rxcui = ""
                     drug_info: dict = {}
-                    try:
-                        session = async_get_clientsession(self.hass)
-                        results = await search_medications(session, name, max_results=1)
-                        if results:
-                            rxcui = results[0].get("rxcui", "")
-                            if rxcui:
-                                details = await get_drug_details(session, rxcui)
-                                if details:
-                                    drug_info = details
-                    except Exception:
-                        _LOGGER.debug("FDA lookup failed for %s, continuing without", name)
+                    if user_input.get("lookup_drug_info"):
+                        try:
+                            session = async_get_clientsession(self.hass)
+                            results = await search_medications(session, name, max_results=1)
+                            if results:
+                                rxcui = results[0].get("rxcui", "")
+                                if rxcui:
+                                    details = await get_drug_details(session, rxcui)
+                                    if details:
+                                        drug_info = details
+                        except Exception:
+                            _LOGGER.debug("FDA lookup failed for %s, continuing without", name)
 
                     data = {
                         ATTR_NAME: name,
@@ -79,6 +83,7 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ATTR_TIMES,
                     description={"suggested_value": "08:00, 20:00"},
                 ): str,
+                vol.Optional("lookup_drug_info", default=False): bool,
             }
         )
         return self.async_show_form(

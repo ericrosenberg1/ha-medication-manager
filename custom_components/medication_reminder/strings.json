@@ -7,12 +7,14 @@
         "data": {
           "name": "Medication Name",
           "dose": "Dose (optional)",
-          "times": "Reminder Times"
+          "times": "Reminder Times",
+          "lookup_drug_info": "Look up drug info (optional)"
         },
         "data_description": {
-          "name": "The medication name. Used to look up FDA drug data.",
+          "name": "The medication name.",
           "dose": "e.g. 10mg, 2 tablets",
-          "times": "Comma-separated 24-hour times, e.g. 08:00, 20:00"
+          "times": "Comma-separated 24-hour times, e.g. 08:00, 20:00",
+          "lookup_drug_info": "Sends the medication name to NIH RxTerms and OpenFDA to prefill dosage and interaction text. Off by default; leave unchecked to keep everything local."
         }
       }
     },

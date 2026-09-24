@@ -281,6 +281,7 @@ class MedicationSensor(SensorEntity):
             self._last_action = _LastAction(status=STATE_SNOOZED, timestamp=snooze_iso)
             self.async_write_ha_state()
 
+            @callback
             def _cb(_):
                 self.hass.async_create_task(self._snooze_expired())
 
@@ -346,6 +347,7 @@ class MedicationSensor(SensorEntity):
                 target += timedelta(days=1)
             # else: target is in the future today, schedule normally
 
+            @callback
             def _cb(_, hhi=hh, mmi=mm, slot=t):
                 self.hass.async_create_task(self._fire_slot(slot))
                 self._reschedule_time(hhi, mmi, slot)
@@ -363,6 +365,7 @@ class MedicationSensor(SensorEntity):
     def _reschedule_time(self, hh: int, mm: int, time_slot: str) -> None:
         next_time = dt_util.now().replace(hour=hh, minute=mm, second=0, microsecond=0) + timedelta(days=1)
 
+        @callback
         def _cb(_, hhi=hh, mmi=mm, slot=time_slot):
             self.hass.async_create_task(self._fire_slot(slot))
             self._reschedule_time(hhi, mmi, slot)
@@ -411,7 +414,12 @@ class MedicationSensor(SensorEntity):
 
         _LOGGER.debug("%s: midnight reset to Pending", self.entity_id)
 
-    async def _async_send_reminder(self) -> None:
+    async def _send_notification(self) -> None:
+        """Send the persistent-notification and mobile reminder. Does not touch the nag cycle.
+
+        Called both for the initial reminder and for each nag resend, so it must not
+        (re)start nag scheduling itself. See _async_send_reminder and _start_nags.
+        """
         message = f"Time to take {self._dose} ({self._name})" if self._dose else f"Time to take {self._name}"
         try:
             await self.hass.services.async_call(
@@ -449,6 +457,10 @@ class MedicationSensor(SensorEntity):
 
         self._last_action = _LastAction(status="Reminder", timestamp=dt_util.now().isoformat())
         self.async_write_ha_state()
+
+    async def _async_send_reminder(self) -> None:
+        """Send the initial reminder for a slot/snooze-expiry and (re)start the nag cycle."""
+        await self._send_notification()
         self._start_nags()
 
     async def async_mark(self, status: str) -> None:
@@ -495,6 +507,7 @@ class MedicationSensor(SensorEntity):
             return
         await history.set_snooze_until(self.entity_id, when.isoformat())
 
+        @callback
         def _cb(_):
             self.hass.async_create_task(self._snooze_expired())
 
@@ -579,12 +592,16 @@ class MedicationSensor(SensorEntity):
             return
         self._nag_remaining = self._nag_max
 
+        @callback
         def _nag_cb(_):
             st = str(self._state or "").lower()
             if st.startswith("take") or st.startswith("skip"):
                 self._cancel_nags()
                 return
-            self.hass.async_create_task(self._async_send_reminder())
+            # Resend the notification only. Calling _async_send_reminder() here would
+            # call _start_nags() again and reset _nag_remaining back to _nag_max on every
+            # nag, making nag_max unenforceable (nags would repeat forever).
+            self.hass.async_create_task(self._send_notification())
             self._nag_remaining -= 1
             if self._nag_remaining <= 0:
                 self._cancel_nags()

@@ -203,7 +203,10 @@ async def test_refill_alert_set_when_below_threshold(med_sensor, history_mgr, ha
     # remaining will become 5 == threshold → alert fires
     await history_mgr.set_refill(eid, remaining=6, threshold=5, units_per_intake=1)
 
-    with patch.object(hass.services, "async_call", return_value=None):
+    # Patch at the class level: homeassistant's ServiceRegistry uses __slots__, so
+    # instances have no __dict__ and patch.object(hass.services, ...) fails with
+    # "attribute is read-only".
+    with patch.object(type(hass.services), "async_call", return_value=None):
         await med_sensor.async_mark(STATE_TAKEN)
         await hass.async_block_till_done()
 
@@ -220,3 +223,81 @@ async def test_refill_skipped_does_not_decrement(med_sensor, history_mgr):
 
     info = history_mgr.get_refill(eid)
     assert info["remaining"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Nag scheduling
+# ---------------------------------------------------------------------------
+
+
+async def test_nag_stops_after_nag_max(hass, history_mgr):
+    """Regression test for an infinite-nag bug.
+
+    _async_send_reminder() used to unconditionally call _start_nags() at its end,
+    including when it was invoked from the nag callback itself to resend the
+    reminder. That reset _nag_remaining back to nag_max on every single nag
+    firing, so nag_max was never actually enforced and reminders nagged forever
+    regardless of the configured limit. Fixed by splitting the plain notification
+    send (_send_notification, used by nag resends) from the initial
+    send-and-start-nagging path (_async_send_reminder, used only for the first
+    fire of a slot/snooze-expiry).
+    """
+    from datetime import timedelta
+
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.medication_reminder.sensor import MedicationSensor
+
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN]["history"] = history_mgr
+    hass.data[DOMAIN].setdefault("entities", {})
+
+    nag_max = 2
+    sensor = MedicationSensor(
+        hass=hass,
+        name="Aspirin",
+        dose="81mg",
+        times=["08:00"],
+        snooze_minutes=5,
+        notify_services=[],
+        nag_interval=1,
+        nag_max=nag_max,
+        refill_total=0,
+        refill_threshold=0,
+        units_per_intake=1,
+        entry_id="test_entry_nag",
+    )
+    sensor.entity_id = "sensor.medication_aspirin_nag"
+    sensor.async_write_ha_state = MagicMock()
+    hass.data[DOMAIN]["entities"][sensor.entity_id] = sensor
+
+    sent = {"n": 0}
+    original_send = sensor._send_notification
+
+    async def _counting_send():
+        sent["n"] += 1
+        await original_send()
+
+    sensor._send_notification = _counting_send
+
+    try:
+        await sensor._async_send_reminder()  # initial fire, starts the nag cycle
+        await hass.async_block_till_done()
+        assert sent["n"] == 1
+
+        # Advance time well past nag_max * nag_interval. With the bug, each nag
+        # resend restarted the cycle, so nags never stopped and this loop would
+        # keep sending indefinitely.
+        now = dt_util.utcnow()
+        for _ in range(6):
+            now += timedelta(minutes=2)
+            async_fire_time_changed(hass, now)
+            await hass.async_block_till_done()
+
+        # 1 initial send + at most nag_max resends.
+        assert sent["n"] <= 1 + nag_max
+        # The nag cycle must have stopped on its own.
+        assert sensor._nag_unsub is None
+        assert sensor._nag_remaining == 0
+    finally:
+        await sensor.async_will_remove_from_hass()

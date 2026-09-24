@@ -71,4 +71,11 @@ async def med_sensor(hass, history_mgr):
         units_per_intake=1,
     )
 
-    return sensor
+    yield sensor
+
+    # Tests that call async_snooze()/_start_nags() leave scheduled HA timers
+    # (async_track_point_in_time / async_call_later) behind. Startup scheduling is
+    # bypassed for this fixture, so unloading is the only teardown that cancels them;
+    # without it pytest-homeassistant-custom-component's cleanup check fails every
+    # such test with "Lingering timer after test".
+    await sensor.async_will_remove_from_hass()
