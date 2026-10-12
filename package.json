@@ -1,0 +1,12 @@
+{
+  "name": "ha-medication-manager-cards",
+  "private": true,
+  "description": "Test tooling for the Lovelace cards in www/community. Not shipped.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/js/"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.2"
+  }
+}

@@ -75,7 +75,7 @@ class MedicationCardEditor extends HTMLElement {
         </style>
         <div class="editor-row">
           <label for="med-card-title">Title</label>
-          <input class="title-input" id="med-card-title" type="text" value="${this._config.title || ''}" placeholder="Medications">
+          <input class="title-input" id="med-card-title" type="text" placeholder="Medications">
 
           <label id="med-card-entities-label">Entities</label>
           <div class="hint">Add sensor.medication_* entities</div>
@@ -97,15 +97,37 @@ class MedicationCardEditor extends HTMLElement {
       });
     }
 
+    // Set the title through the DOM property, never the markup above, so a
+    // title holding quotes or angle brackets can't break the input.
+    const titleInput = this.querySelector('.title-input');
+    const title = this._config.title || '';
+    if (titleInput.value !== title) titleInput.value = title;
+
     this._renderEntities();
   }
 
   _renderEntities() {
     const list = this.querySelector('#entity-list');
     if (!list) return;
-    list.innerHTML = '';
 
     const entities = this._config.entities || [];
+
+    // hass is set on every state change in Home Assistant, and setConfig runs
+    // after each edit. Rebuilding the rows on each call would drop focus while
+    // someone types an entity id, so only rebuild when rows are added or
+    // removed, and otherwise sync the values in place.
+    const rows = list.querySelectorAll('.entity-row');
+    if (rows.length === entities.length) {
+      rows.forEach((row, idx) => {
+        const input = row.querySelector('input');
+        if (input.value !== entities[idx]) input.value = entities[idx];
+        row.querySelector('.remove-btn')
+          .setAttribute('aria-label', `Remove entity ${entities[idx] || idx + 1}`);
+      });
+      return;
+    }
+
+    list.innerHTML = '';
     entities.forEach((entity, idx) => {
       const row = document.createElement('div');
       row.className = 'entity-row';

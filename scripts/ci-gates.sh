@@ -49,4 +49,13 @@ fi
 echo "==> py_compile"
 find . -name "*.py" -not -path "./venv/*" -not -path "./.venv/*" -print0 | xargs -0 python3 -m py_compile
 
+# The Lovelace cards in www/community are plain JS with no build step.
+# tests/js loads them into jsdom (package.json holds that test tooling only).
+command -v node >/dev/null 2>&1 || { echo "ci-gates: node is needed for the card checks"; exit 1; }
+echo "==> node --check (cards)"
+find www -name "*.js" -print0 | xargs -0 -n1 node --check
+echo "==> card tests"
+[ -d node_modules ] || npm ci --silent
+npm test --silent
+
 echo "==> gates passed"
