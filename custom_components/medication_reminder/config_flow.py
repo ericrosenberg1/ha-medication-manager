@@ -26,8 +26,8 @@ class MedicationReminderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Step 1: Enter medication name, dose, and times.
 
         The name field doubles as an FDA database search. If an RxCUI match is
-        found, drug details (dosage text, interaction warnings) are stored
-        alongside the config entry for use by the interaction sensor.
+        found, drug details (dosage text, label interaction text) are stored
+        alongside the config entry.
         """
         errors = {}
         if user_input is not None:
